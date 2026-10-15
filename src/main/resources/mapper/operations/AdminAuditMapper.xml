@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flashslot.operations.mapper.AdminAuditMapper">
+    <!-- 只关联操作人的公开用户名，按时间和 ID 倒序翻页。 -->
+    <select id="findPage" resultType="com.flashslot.operations.vo.AuditView">
+        SELECT a.id, a.actor_id, u.username AS actor_username, a.operation,
+               a.target_id, a.reason, a.trace_id, a.created_at
+        FROM admin_audit a
+        JOIN app_user u ON u.id = a.actor_id
+        <where>
+            <if test="request.actorId != null">AND a.actor_id = #{request.actorId}</if>
+            <if test="request.operation != null">AND a.operation = #{request.operation}</if>
+            <if test="request.targetId != null">AND a.target_id = #{request.targetId}</if>
+            <if test="request.from != null">AND a.created_at &gt;= #{request.from}</if>
+            <if test="request.to != null">AND a.created_at &lt;= #{request.to}</if>
+            <if test="anchor != null">
+                AND (a.created_at &lt; #{anchor.createdAt}
+                     OR (a.created_at = #{anchor.createdAt} AND a.id &lt; #{anchor.id}))
+            </if>
+        </where>
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT #{fetchSize}
+    </select>
+</mapper>

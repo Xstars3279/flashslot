@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flashslot.messaging.mapper.OutboxEventMapper">
+    <!-- 只领取已订阅通知的事件；其他事件等待对应模块接入，不能误标为已投递。 -->
+    <select id="findDue" resultType="java.lang.String">
+        SELECT event_id
+        FROM outbox_event
+        WHERE event_type IN
+        <foreach collection="types" item="type" open="(" separator="," close=")">#{type}</foreach>
+          AND ((status = 'NEW' AND next_run_at &lt;= #{now})
+               OR (status = 'SENDING' AND (lease_until IS NULL OR lease_until &lt;= #{now})))
+        ORDER BY next_run_at, event_id
+        LIMIT 50
+    </select>
+</mapper>

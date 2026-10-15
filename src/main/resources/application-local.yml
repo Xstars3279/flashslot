@@ -1,0 +1,6 @@
+# Only the local development profile exposes API documentation.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

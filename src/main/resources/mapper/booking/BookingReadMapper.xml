@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.flashslot.booking.mapper.BookingReadMapper">
+
+    <!-- 订单详情：订单关联设备，并补充可选的释放任务进度。 -->
+    <select id="findVisible" resultType="com.flashslot.booking.vo.BookingDetailView">
+        SELECT
+            b.order_no, b.resource_id, b.book_date, b.start_slot, b.end_slot,
+            b.purpose, b.status, b.source, b.charged_slots,
+            b.start_at, b.end_at, b.check_in_open_at, b.check_in_deadline,
+            b.checked_in_at, b.terminated_at, b.termination_reason, b.reason_text,
+            b.version, b.created_at, b.updated_at,
+            r.name AS resource_name,
+            r.location AS resource_location,
+            j.job_no AS release_job_no,
+            j.status AS release_status
+        FROM booking_order b
+        JOIN resource r ON r.id = b.resource_id
+        LEFT JOIN release_job j ON j.source_booking_id = b.id
+        WHERE b.order_no = #{orderNo}
+          AND (b.user_id = #{userId} OR #{administrator} = TRUE)
+    </select>
+
+    <!-- 只能用本人订单作为翻页锚点。 -->
+    <select id="findOwnCursor" resultType="com.flashslot.booking.entity.BookingOrder">
+        SELECT id, created_at
+        FROM booking_order
+        WHERE order_no = #{orderNo}
+          AND user_id = #{userId}
+    </select>
+
+    <!-- 我的订单：同毫秒创建的订单使用 ID 确定顺序。 -->
+    <select id="findOwnPage" resultType="com.flashslot.booking.vo.BookingDetailView">
+        SELECT
+            b.order_no, b.resource_id, b.book_date, b.start_slot, b.end_slot,
+            b.purpose, b.status, b.source, b.charged_slots,
+            b.start_at, b.end_at, b.check_in_open_at, b.check_in_deadline,
+            b.checked_in_at, b.terminated_at, b.termination_reason, b.reason_text,
+            b.version, b.created_at, b.updated_at,
+            r.name AS resource_name,
+            r.location AS resource_location,
+            j.job_no AS release_job_no,
+            j.status AS release_status
+        FROM booking_order b
+        JOIN resource r ON r.id = b.resource_id
+        LEFT JOIN release_job j ON j.source_booking_id = b.id
+        WHERE b.user_id = #{userId}
+        <if test="anchor != null">
+            AND (b.created_at &lt; #{anchor.createdAt}
+                 OR (b.created_at = #{anchor.createdAt} AND b.id &lt; #{anchor.id}))
+        </if>
+        ORDER BY b.created_at DESC, b.id DESC
+        LIMIT #{fetchSize}
+    </select>
+
+</mapper>
