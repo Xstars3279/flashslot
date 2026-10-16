@@ -1,4 +1,13 @@
-target/
-.env
-.idea/
+.run/
+**/target/
+**/node_modules/
+**/dist/
+**/.idea/
 *.iml
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.log
