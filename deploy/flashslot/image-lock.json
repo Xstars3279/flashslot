@@ -1,0 +1,105 @@
+{
+  "verifiedAt": "2026-10-17T14:35:08.497301+08:00",
+  "timeZone": "Asia/Shanghai",
+  "verification": "Read Docker Hub Registry v2 tag and immutable digest manifests. Computed SHA-256 matched each advertised index/manifest digest and each linux/amd64 child manifest/config digest. Configuration metadata only; no image layers pulled, Docker daemon, container execution, SSH or deployment. Multi-platform index locks preserve platform selection.",
+  "images": [
+    {
+      "service": "mysql",
+      "repository": "library/mysql",
+      "tag": "8.0",
+      "reference": "mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+      "digest": "sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linuxAmd64Manifest": "sha256:62fb722c78b24245ddff1796a0fcee4a49cc5b87e0aaaf20c92d1da9e0a2497b",
+      "linuxAmd64Config": "sha256:6cd09145362dfe6831b14545de3d5fd6cc75c37cfd6ef8561429c1fc73518b39",
+      "versionEnvironment": [
+        "GOSU_VERSION=1.19",
+        "MYSQL_VERSION=8.0.46-1.el9",
+        "MYSQL_SHELL_VERSION=8.0.46-1.el9"
+      ],
+      "ociLabels": {},
+      "manifestURL": "https://registry-1.docker.io/v2/library/mysql/manifests/sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b"
+    },
+    {
+      "service": "redis",
+      "repository": "library/redis",
+      "tag": "7-alpine",
+      "reference": "redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
+      "digest": "sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linuxAmd64Manifest": "sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2",
+      "linuxAmd64Config": "sha256:f84b0c4678011602b9b98c227a4dcd5468bf8b088b02fdd4165cb7758bad8058",
+      "versionEnvironment": [
+        "REDIS_VERSION=7.4.11"
+      ],
+      "ociLabels": {},
+      "manifestURL": "https://registry-1.docker.io/v2/library/redis/manifests/sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+    },
+    {
+      "service": "rabbit",
+      "repository": "library/rabbitmq",
+      "tag": "3-management-alpine",
+      "reference": "rabbitmq:3-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281",
+      "digest": "sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linuxAmd64Manifest": "sha256:3c498e636fd64462480c5f9ff842eb224ab84160a8ada1ded5375e9569e9230c",
+      "linuxAmd64Config": "sha256:1031d41f3f1611f61f0fe9011e26201967f460f93f96f92d5be0e823d59e7541",
+      "versionEnvironment": [
+        "RABBITMQ_VERSION=3.13.7"
+      ],
+      "ociLabels": {},
+      "manifestURL": "https://registry-1.docker.io/v2/library/rabbitmq/manifests/sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281"
+    },
+    {
+      "service": "app",
+      "repository": "library/eclipse-temurin",
+      "tag": "21-jre-jammy",
+      "reference": "eclipse-temurin:21-jre-jammy@sha256:affcab5356e1270ac35d2361ee83135af2f03e8d580eca78a6d5d6fdbf048db0",
+      "digest": "sha256:affcab5356e1270ac35d2361ee83135af2f03e8d580eca78a6d5d6fdbf048db0",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linuxAmd64Manifest": "sha256:8ecbec1f32912979c15b86aaf98f7082a77d318a7f92af3d9fe2c0fd2723df10",
+      "linuxAmd64Config": "sha256:11eed32f648485a65789549c5a62ad808be938bb96c3566ddfd1f17f318ece16",
+      "versionEnvironment": [
+        "JAVA_VERSION=jdk-21.0.12.1+1"
+      ],
+      "ociLabels": {
+        "org.opencontainers.image.version": "22.04"
+      },
+      "manifestURL": "https://registry-1.docker.io/v2/library/eclipse-temurin/manifests/sha256:affcab5356e1270ac35d2361ee83135af2f03e8d580eca78a6d5d6fdbf048db0"
+    },
+    {
+      "service": "web",
+      "repository": "library/nginx",
+      "tag": "1.25-alpine",
+      "reference": "nginx:1.25-alpine@sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00",
+      "digest": "sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "linuxAmd64Manifest": "sha256:721fa00bc549df26b3e67cc558ff176112d4ba69847537766f3c28e171d180e7",
+      "linuxAmd64Config": "sha256:501d84f5d06487ff81e506134dc922ed4fd2080d5521eb5b6ee4054fa17d15c4",
+      "versionEnvironment": [
+        "NGINX_VERSION=1.25.5",
+        "NJS_VERSION=0.8.4"
+      ],
+      "ociLabels": {
+        "maintainer": "NGINX Docker Maintainers <docker-maint@nginx.com>"
+      },
+      "manifestURL": "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:516475cc129da42866742567714ddc681e5eed7b9ee0b9e9c015e464b4221a00"
+    },
+    {
+      "service": "prometheus",
+      "repository": "prom/prometheus",
+      "tag": "v3.5.0",
+      "reference": "prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
+      "digest": "sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
+      "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json",
+      "linuxAmd64Manifest": "sha256:8672a850efe2f9874702406c8318704edb363587f8c2ca88586b4c8fdb5cea24",
+      "linuxAmd64Config": "sha256:a3bc50fcb50fb1409287c32773d8fe799f6cad5511c4ba3e2e851784e7a05026",
+      "versionEnvironment": [],
+      "ociLabels": {
+        "maintainer": "The Prometheus Authors <prometheus-developers@googlegroups.com>",
+        "org.opencontainers.image.source": "https://github.com/prometheus/prometheus"
+      },
+      "manifestURL": "https://registry-1.docker.io/v2/prom/prometheus/manifests/sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996"
+    }
+  ]
+}

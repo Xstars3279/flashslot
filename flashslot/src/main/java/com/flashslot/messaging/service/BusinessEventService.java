@@ -24,6 +24,7 @@ public class BusinessEventService {
         OutboxEvent event = new OutboxEvent();
         event.setEventId(UUID.randomUUID().toString());
         event.setEventType(type);
+        event.setStatus(com.flashslot.messaging.model.PublishedEvent.initialStatus(type));
         event.setAggregateId(aggregateId);
         event.setPayload(
                 json.createObjectNode()

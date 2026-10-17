@@ -34,15 +34,18 @@ public class DeadLetterRecoveryService {
     private final ObjectMapper json;
     private final Clock clock;
     private final OutboxEventMapper outbox;
-    public record DeadLetterView(long id,String eventId,String eventType,String errorCode,String status,int deliveries,Instant receivedAt) {}
+    public record DeadLetterView(long id,String eventId,String eventType,String errorCode,String status,int deliveries,Instant receivedAt,
+        String sourceQueue,String originalExchange,String routingKey,String failureCategory,String failureReason,long brokerDeathCount,Instant lastReceivedAt) {}
 
     @Transactional(readOnly=true)
     public RecoveryPage<DeadLetterView> list(long cursor,int limit) {
         admin.requireAdmin();
         if(cursor<0 || limit<1 || limit>100) throw failure(HttpStatus.BAD_REQUEST,"分页参数不合法");
-        var rows=mapper.selectList(new QueryWrapper<DeadLetter>().select("id","event_id","event_type","error_code","status","deliveries","received_at")
+        var rows=mapper.selectList(new QueryWrapper<DeadLetter>().select("id","event_id","event_type","error_code","status","deliveries","received_at",
+            "source_queue","original_exchange","routing_key","failure_category","failure_reason","broker_death_count","last_received_at")
             .eq("status","FAILED").gt("id",cursor).orderByAsc("id").last("LIMIT "+(limit+1)));
-        var items=rows.stream().limit(limit).map(r -> new DeadLetterView(r.getId(),r.getEventId(),r.getEventType(),r.getErrorCode(),r.getStatus(),r.getDeliveries(),r.getReceivedAt())).toList();
+        var items=rows.stream().limit(limit).map(r -> new DeadLetterView(r.getId(),r.getEventId(),r.getEventType(),r.getErrorCode(),r.getStatus(),r.getDeliveries(),r.getReceivedAt(),
+            r.getSourceQueue(),r.getOriginalExchange(),r.getRoutingKey(),r.getFailureCategory(),r.getFailureReason(),r.getBrokerDeathCount(),r.getLastReceivedAt())).toList();
         boolean more=rows.size()>limit;
         return new RecoveryPage<>(items,more?Long.toString(items.getLast().id()):null,more);
     }

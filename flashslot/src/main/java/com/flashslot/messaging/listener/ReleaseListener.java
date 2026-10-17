@@ -15,14 +15,18 @@ import org.springframework.stereotype.Component;
 public class ReleaseListener {
     private final ObjectMapper json;
     private final ReleaseConsumerService service;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.flashslot.messaging.metrics.MessageProcessingMetrics metrics;
     @RabbitListener(queues="flashslot.release",containerFactory="releaseListenerFactory")
     public void receive(Message message) {
-        NotificationEvent event;
+        NotificationEvent event = metrics.decode("release", () -> {
         try {
-            event=json.readValue(message.getBody(),NotificationEvent.class);
-            PublishedEvent.validate(event);
-            if(!PublishedEvent.RELEASE.equals(event.eventType())) throw new IllegalArgumentException();
+            var decoded=json.readValue(message.getBody(),NotificationEvent.class);
+            PublishedEvent.validate(decoded);
+            if(!PublishedEvent.RELEASE.equals(decoded.eventType())) throw new IllegalArgumentException();
+            return decoded;
         } catch(Exception ex) { throw new AmqpRejectAndDontRequeueException("撮合消息格式或版本不支持"); }
+        });
         service.consume(event);
     }
 }

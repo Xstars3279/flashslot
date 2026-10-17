@@ -16,4 +16,11 @@ public class DeadLetter {
     private Integer deliveries;
     private Instant receivedAt;
     private Instant recoveredAt;
+    private String sourceQueue;
+    private String originalExchange;
+    private String routingKey;
+    private String failureCategory;
+    private String failureReason;
+    private Long brokerDeathCount;
+    private Instant lastReceivedAt;
 }

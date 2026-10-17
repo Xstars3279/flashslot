@@ -5,6 +5,14 @@ import java.util.*;
 /** 发布事件的类型边界；任务指令不进入用户通知消费者。 */
 public final class PublishedEvent {
     public static final String RELEASE = "RELEASE_DISPATCHED";
+    private static final Set<String> HISTORY=Set.of("SCHEDULE_CHANGED","CREDIT_CHANGED","WAITLIST_CREATED",
+        "RELEASE_REQUESTED","RELEASE_COMPLETED","RELEASE_MATCHED");
+    /** 无订阅的留痕事件不冒充待投递；未登记类型拒绝写入，避免拼写错误被静默归档。 */
+    public static String initialStatus(String type) {
+        if(supported(type)) return "NEW";
+        if(HISTORY.contains(type)) return "ARCHIVED";
+        throw new IllegalArgumentException("未登记的事件类型");
+    }
     private PublishedEvent() {}
     public static boolean supported(String type) {
         return RELEASE.equals(type) || NotificationEventType.supported(type);

@@ -54,7 +54,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: never
@@ -69,6 +69,8 @@ springdoc:
   swagger-ui:
     enabled: false
 app:
+  metrics:
+    allowed-networks: ${METRICS_ALLOWED_NETWORKS:127.0.0.1/32,::1/128}
   security:
     trusted-proxies: ${TRUSTED_PROXIES:}
   login-rate-limit:
@@ -78,6 +80,7 @@ app:
   registration:
     development-code-enabled: ${REGISTRATION_DEVELOPMENT_CODE_ENABLED:false}
   history-cleanup:
+    event-history-retention-days: ${EVENT_HISTORY_RETENTION_DAYS:90}
     scheduling-enabled: ${HISTORY_CLEANUP_SCHEDULING_ENABLED:true}
     scan-delay-ms: 3600000
   resource-calendar:

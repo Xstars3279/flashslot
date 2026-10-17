@@ -96,7 +96,7 @@ class FoundationIntegrationTest {
 
     @Test
     void migrationsAreRepeatableAndHttpFoundationStarts() throws Exception {
-        assertThat(flyway.info().applied()).hasSize(9);
+        assertThat(flyway.info().applied()).hasSize(10);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();

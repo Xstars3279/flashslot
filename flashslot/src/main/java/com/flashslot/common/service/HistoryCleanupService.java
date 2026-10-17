@@ -9,10 +9,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class HistoryCleanupService {
     private final HistoryCleanupMapper mapper;
     private final Clock clock;
-    /** 每批独立提交，已完成幂等记录保留至 expires_at；不删除业务与去重历史。 */
+    @org.springframework.beans.factory.annotation.Value("${app.history-cleanup.event-history-retention-days:90}")
+    private int historyDays;
+    /** 每批独立提交；只清理过期的留痕事件，不清理发布中/已发布事件或 Inbox 防重记录。 */
     @Transactional
     public int cleanupBatch() {
         var now=clock.instant();
-        return mapper.completedOperations(now)+mapper.revokedTokens(now);
+        if(historyDays<1) throw new IllegalStateException("事件历史保留天数必须为正数");
+        return mapper.completedOperations(now)+mapper.revokedTokens(now)
+            +mapper.archivedEvents(now.minus(java.time.Duration.ofDays(historyDays)));
     }
 }

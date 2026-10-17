@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Location } from '@element-plus/icons-vue'
@@ -11,15 +11,37 @@ const devices = ref([]), selected = ref(null), date = ref(shanghaiDate()), sched
 const start = ref(null), end = ref(null), purpose = ref('STUDY')
 const visibleDevices = computed(() => devices.value.filter(d => `${d.name}${d.location}`.includes(search.value)))
 const device = computed(() => devices.value.find(d => d.id === selected.value))
-const dates = Array.from({ length: 7 }, (_, i) => shanghaiDate(i))
+const dates = ref(Array.from({ length: 7 }, (_, i) => shanghaiDate(i)))
 const chosen = computed(() => schedule.value?.slots.filter(s => start.value !== null && s.slotIndex >= start.value && s.slotIndex < end.value) || [])
 const waitlist = computed(() => chosen.value.some(s => ['BOOKED', 'HANDOFF'].includes(s.state)))
 const stateNames = { FREE: '可预约', BOOKED: '已预约', HANDOFF: '候补交接', CLOSED: '未开放', PAST: '已开始' }
-let generation = 0
+let generation = 0, midnightTimer, disposed = false
+function armMidnight() {
+  clearTimeout(midnightTimer)
+  if (disposed) return
+  const nextMidnight = new Date(`${shanghaiDate(1)}T00:00:00+08:00`).getTime()
+  midnightTimer = setTimeout(() => { refreshDates(); armMidnight() }, Math.max(1, nextMidnight - Date.now()))
+}
+function refreshDates() {
+  const today = shanghaiDate()
+  if (dates.value[0] === today) return
+  dates.value = Array.from({ length: 7 }, (_, i) => shanghaiDate(i))
+  if (!dates.value.includes(date.value)) date.value = today
+  else load()
+}
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') { refreshDates(); armMidnight() }
+}
+onUnmounted(() => {
+  disposed = true; generation++
+  clearTimeout(midnightTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 async function load() {
-  if (!selected.value) return
   const ticket = ++generation
-  loading.value = true; start.value = end.value = null
+  start.value = end.value = null; schedule.value = null
+  if (disposed || !selected.value) { loading.value = false; return }
+  loading.value = true
   try { const result = await http.get(`/resources/${selected.value}/schedule`, { params: { date: date.value } }); if (ticket === generation) schedule.value = result }
   catch (error) { if (ticket === generation) { schedule.value = null; showError(error) } }
   finally { if (ticket === generation) loading.value = false }
@@ -44,8 +66,15 @@ async function submit() {
     await load()
   } catch (error) { showError(error) } finally { busy.value = false }
 }
-onMounted(async () => { try { devices.value = await allResources(); selected.value = devices.value[0]?.id || null } catch (error) { showError(error) } })
-watch([selected, date], load)
+onMounted(async () => {
+  refreshDates(); armMidnight()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  try {
+    const result = await allResources()
+    if (!disposed) { devices.value = result; selected.value = result[0]?.id || null }
+  } catch (error) { if (!disposed) showError(error) }
+})
+watch([selected, date], load, { flush: 'sync' })
 </script>
 <template>
   <div class="page-heading"><div><span class="section-kicker">设备共享中心</span><h1>把下一段时间，安排好。</h1><p>选一台设备，再选择连续的30分钟时段。</p></div><el-button :icon="Refresh" :loading="loading" @click="load">刷新排期</el-button></div>

@@ -11,5 +11,5 @@ import org.springframework.stereotype.Component;
 public class DeadLetterListener {
     private final DeadLetterStore store;
     @RabbitListener(queues={"flashslot.notification.dead","flashslot.release.dead"},containerFactory="deadLetterListenerFactory")
-    public void receive(Message message) { store.capture(message.getBody()); }
+    public void receive(Message message) { store.capture(message,null); }
 }

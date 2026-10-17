@@ -94,7 +94,7 @@ public class MessagingConfiguration {
                 } catch(Exception ex) {
                     log.warn("撮合失败记录未完成，exception={}",ex.getClass().getSimpleName());
                 }
-                persistFailure(failures,message);
+                persistFailure(failures,message,cause);
             }).build());
         return factory;
     }
@@ -115,14 +115,14 @@ public class MessagingConfiguration {
                 RetryInterceptorBuilder.stateless()
                         .maxAttempts(3)
                         .backOffOptions(1000, 2, 5000)
-                        .recoverer((message,cause) -> persistFailure(failures,message))
+                        .recoverer((message,cause) -> persistFailure(failures,message,cause))
                         .build());
         return factory;
     }
 
     /** 保存事务提交后 recoverer 才正常返回并允许 AUTO ACK；失败则保留原队列消息。 */
-    private void persistFailure(DeadLetterStore failures,Message message) {
-        try { failures.capture(message.getBody()); }
+    private void persistFailure(DeadLetterStore failures,Message message,Throwable cause) {
+        try { failures.capture(message,cause); }
         catch(RuntimeException ex) {
             throw new org.springframework.amqp.ImmediateRequeueAmqpException("消费失败原文尚未持久化，保留原消息",ex);
         }

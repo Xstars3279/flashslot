@@ -14,6 +14,12 @@ import org.springframework.test.web.servlet.MockMvc;
 @EnabledIfEnvironmentVariable(named="FLASHSLOT_PRIVATE_TEST",matches="true")
 class RegistrationDisabledIntegrationTest {
     @Autowired MockMvc mvc;
+    @Test void publicCapabilitiesDisableRegistrationWithoutExposingCodes() throws Exception {
+        mvc.perform(get("/api/v1/auth/capabilities")).andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control","no-store"))
+            .andExpect(jsonPath("data.registrationEnabled").value(false))
+            .andExpect(jsonPath("data.registrationMode").value("DISABLED"));
+    }
     @Test void disabledModeNeverExposesCodesOrRegistersAccounts() throws Exception {
         mvc.perform(post("/api/v1/auth/registration/code").contentType("application/json").content("{\"phone\":\"13912345678\"}"))
             .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("data").isEmpty());

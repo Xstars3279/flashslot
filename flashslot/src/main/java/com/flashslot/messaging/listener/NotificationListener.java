@@ -20,18 +20,21 @@ import org.springframework.stereotype.Component;
 public class NotificationListener {
     @Autowired private ObjectMapper json;
     @Autowired private NotificationConsumerService service;
+    @Autowired private com.flashslot.messaging.metrics.MessageProcessingMetrics metrics;
 
     @RabbitListener(
             queues = "flashslot.notification",
             containerFactory = "notificationListenerFactory")
     public void receive(Message message) {
-        NotificationEvent event;
+        NotificationEvent event = metrics.decode("notification", () -> {
         try {
-            event = json.readValue(message.getBody(), NotificationEvent.class);
-            event.validate();
+            var decoded = json.readValue(message.getBody(), NotificationEvent.class);
+            decoded.validate();
+            return decoded;
         } catch (Exception ex) {
             throw new AmqpRejectAndDontRequeueException("通知消息格式或版本不支持");
         }
+        });
         service.consume(event);
     }
 }

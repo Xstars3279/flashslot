@@ -26,6 +26,7 @@ public class ScheduleEventService {
         OutboxEvent event = new OutboxEvent();
         event.setEventId(UUID.randomUUID().toString());
         event.setEventType("SCHEDULE_CHANGED");
+        event.setStatus(com.flashslot.messaging.model.PublishedEvent.initialStatus("SCHEDULE_CHANGED"));
         event.setAggregateId(resourceId + ":" + date);
         event.setPayload(
                 json.createObjectNode()

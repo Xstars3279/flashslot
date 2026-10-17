@@ -8,4 +8,6 @@ public interface HistoryCleanupMapper {
     int completedOperations(Instant now);
     @Delete("DELETE FROM revoked_token WHERE expires_at<=#{now} ORDER BY expires_at LIMIT 500")
     int revokedTokens(Instant now);
+    @Delete("DELETE FROM outbox_event WHERE status='ARCHIVED' AND created_at<#{before} ORDER BY created_at,event_id LIMIT 500")
+    int archivedEvents(Instant before);
 }

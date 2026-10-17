@@ -3,6 +3,8 @@ package com.flashslot.messaging.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashslot.messaging.entity.OutboxEvent;
 import com.flashslot.messaging.mapper.OutboxEventMapper;
+import com.flashslot.messaging.metrics.MessageProcessingMetrics;
+import com.flashslot.messaging.metrics.MessageProcessingMetrics.PublishResult;
 import com.flashslot.messaging.model.*;
 import com.flashslot.messaging.service.*;
 
@@ -32,6 +34,7 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
     @Autowired private RabbitTemplate rabbit;
     @Autowired private ObjectMapper json;
     @Autowired private Clock clock;
+    @Autowired private MessageProcessingMetrics metrics;
 
     @Value("${app.messaging.confirm-timeout-ms:5000}")
     private long confirmTimeout;
@@ -54,8 +57,12 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
 
     @Override
     public boolean publish(String eventId) {
+        return metrics.publish(() -> publishAttempt(eventId));
+    }
+
+    private PublishResult publishAttempt(String eventId) {
         OutboxEvent event = delivery.claim(eventId);
-        if (event == null) return false;
+        if (event == null) return PublishResult.skipped;
         String reason = "PUBLISH_FAILED";
         try {
             var envelope =
@@ -81,7 +88,8 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
             var confirm = correlation.getFuture().get(confirmTimeout, TimeUnit.MILLISECONDS);
             if (correlation.getReturned() != null) reason = "BROKER_RETURN";
             else if (!confirm.isAck()) reason = "BROKER_NACK";
-            else return delivery.markPublished(eventId, event.getLeaseToken());
+            else return delivery.markPublished(eventId, event.getLeaseToken())
+                    ? PublishResult.published : PublishResult.failed;
         } catch (TimeoutException ex) {
             reason = "CONFIRM_TIMEOUT";
         } catch (InterruptedException ex) {
@@ -94,6 +102,6 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
         }
         // 失败记录也使用独立事务；旧租约的迟到结果不能覆盖新的发送尝试。
         delivery.recordFailure(eventId, event.getLeaseToken(), reason);
-        return false;
+        return PublishResult.failed;
     }
 }

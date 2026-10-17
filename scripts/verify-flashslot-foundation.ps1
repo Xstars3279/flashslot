@@ -130,7 +130,8 @@ try {
     }
     # 每次隔离测试生成私有签名密钥，不输出或写入仓库；退出时恢复调用者环境。
     $env:JWT_SECRET = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-    $taskMavenArgs = @('-f', (Join-Path $taskRoot 'flashslot/pom.xml'), 'clean', 'verify', '-B', '-ntp')
+    # 多个测试上下文不预热十个空闲连接；并发用例仍可按原maximum-pool-size借连接。
+    $taskMavenArgs = @('-f', (Join-Path $taskRoot 'flashslot/pom.xml'), 'clean', 'verify', '-B', '-ntp', '-Dspring.datasource.hikari.minimum-idle=0')
     if ($Test) { $taskMavenArgs += "-Dtest=$Test" }
     & mvn @taskMavenArgs
     if ($LASTEXITCODE -ne 0) { throw "Maven foundation verification failed: $LASTEXITCODE" }

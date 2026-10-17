@@ -5,7 +5,7 @@ import { createIntentRunner } from './intent.js'
 
 export const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
 http.interceptors.request.use(config => {
-  if (session.token && !['/auth/login', '/auth/register', '/auth/registration/code'].includes(config.url)) config.headers.Authorization = `Bearer ${session.token}`
+  if (session.token && !['/auth/login', '/auth/register', '/auth/registration/code', '/auth/capabilities'].includes(config.url)) config.headers.Authorization = `Bearer ${session.token}`
   return config
 })
 http.interceptors.response.use(response => {

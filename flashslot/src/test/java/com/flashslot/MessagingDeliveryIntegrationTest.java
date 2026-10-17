@@ -297,6 +297,9 @@ class MessagingDeliveryIntegrationTest {
         assertThat(count("consumer_inbox", id)).isZero();
         reset(inbox);
         long deadId=jdbc.queryForObject("SELECT id FROM dead_letter WHERE event_id=?",Long.class,id);
+        assertThat(jdbc.queryForObject("SELECT source_queue FROM dead_letter WHERE id=?",String.class,deadId)).isEqualTo(QUEUE);
+        assertThat(jdbc.queryForObject("SELECT failure_category FROM dead_letter WHERE id=?",String.class,deadId)).isEqualTo("PROCESSING_FAILED");
+        assertThat(jdbc.queryForObject("SELECT original_exchange FROM dead_letter WHERE id=?",String.class,deadId)).isEqualTo(EXCHANGE);
         String operator="mq_admin_"+UUID.randomUUID();
         jdbc.update("INSERT INTO app_user(username,password_hash,role) VALUES (?,'fixture','ADMIN')",operator);
         mvc.perform(post("/api/v1/admin/dead-letters/"+deadId+"/replay").with(new TestUser(jdbc,operator).roles("ADMIN")).with(csrf())

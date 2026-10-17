@@ -49,6 +49,7 @@ public class RegistrationCodeService {
     public void requireEnabled() {
         if(!enabled) throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE,"REGISTRATION_DISABLED","手机号注册尚未启用");
     }
+    public boolean isEnabled() { return enabled; }
     public String send(String phone,String ip) {
         requireEnabled();
         String code=String.format(Locale.ROOT,"%06d",random.nextInt(1000000));

@@ -84,4 +84,34 @@ class DeadLetterRecoveryIntegrationTest {
             .andExpect(status().isOk()).andExpect(jsonPath("data.items").isArray());
         mvc.perform(get("/api/v1/admin/dead-letters")).andExpect(status().isUnauthorized());
     }
+    @Test void contextIsScopedByConsumerAndNeverPersistsExceptionSecrets() throws Exception {
+        String name=admin(), event=UUID.randomUUID().toString();
+        byte[] raw=message(event,name,1);
+        for(String queue:new String[]{"flashslot.notification","flashslot.release"}) {
+            var properties=new org.springframework.amqp.core.MessageProperties();
+            properties.setConsumerQueue(queue); properties.setReceivedExchange("flashslot.events"); properties.setReceivedRoutingKey("booking.created");
+            store.capture(new org.springframework.amqp.core.Message(raw,properties),
+                new org.springframework.dao.DataAccessResourceFailureException("password=private-secret jdbc:mysql://private"));
+            store.capture(new org.springframework.amqp.core.Message(raw,properties),
+                new org.springframework.dao.DataAccessResourceFailureException("another private secret"));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dead_letter WHERE event_id=?",Integer.class,event)).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT deliveries FROM dead_letter WHERE event_id=?",Integer.class,event)).containsOnly(2);
+        assertThat(jdbc.queryForList("SELECT failure_category FROM dead_letter WHERE event_id=?",String.class,event)).containsOnly("DATABASE_UNAVAILABLE");
+        String response=mvc.perform(get("/api/v1/admin/dead-letters").with(new TestUser(jdbc,name).roles("ADMIN")))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(response).contains("sourceQueue","failureReason","lastReceivedAt").doesNotContain("private-secret","jdbc:mysql","body","messageHash");
+    }
+    @Test void legacyBrokerDeadLetterPreservesOriginalQueueRoutingAndDeathCount() throws Exception {
+        String event=UUID.randomUUID().toString();
+        var properties=new org.springframework.amqp.core.MessageProperties();
+        properties.setConsumerQueue("flashslot.notification.dead");
+        properties.setReceivedExchange("flashslot.dlx"); properties.setReceivedRoutingKey("notification.dead");
+        properties.setHeader("x-death",java.util.List.of(Map.of("queue","flashslot.notification","exchange","flashslot.events","routing-keys",java.util.List.of("booking.created"),"count",3L)));
+        store.capture(new org.springframework.amqp.core.Message(message(event,admin(),1),properties),null);
+        assertThat(jdbc.queryForObject("SELECT source_queue FROM dead_letter WHERE event_id=?",String.class,event)).isEqualTo("flashslot.notification");
+        assertThat(jdbc.queryForObject("SELECT routing_key FROM dead_letter WHERE event_id=?",String.class,event)).isEqualTo("booking.created");
+        assertThat(jdbc.queryForObject("SELECT broker_death_count FROM dead_letter WHERE event_id=?",Long.class,event)).isEqualTo(3L);
+        assertThat(jdbc.queryForObject("SELECT failure_category FROM dead_letter WHERE event_id=?",String.class,event)).isEqualTo("BROKER_REJECTED");
+    }
 }

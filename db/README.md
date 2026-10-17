@@ -16,6 +16,8 @@
 
 09_release_dispatch_index.sql / V9 为 outbox_event 增加 (event_type,aggregate_id,created_at) 索引，用于半小时撮合指令查重与补偿，仍为16张表。指令复用Outbox和Inbox，不需要新的派发表。
 
+10_message_governance.sql / V10 增加 ARCHIVED 状态、状态/时间清理索引与死信来源/失败上下文字段，将已登记且不投递的历史 NEW 归档；不新增表。既有数据库由 Flyway 升级。
+
 合计 16 张表，字段已添加中文注释。03 在候补和任务创建后补上订单的循环外键；转正顺序为已有候补/任务 → 插入新订单 → 更新候补与任务，不关闭外键检查。
 
 ## 已确认与待确认规则
@@ -37,7 +39,7 @@
 
 占用行的 booking_id/release_job_id 外键仅保证关联记录存在，不证明设备、日期、用户和区间一致；跨表归属还要在业务事务中检查。取消释放必须匹配精确订单/任务身份，不能只按 user_id 删除。
 
-version 和 revision 由应用在对应事务中增加，不会自动随 updated_at 递增。账号、设备与历史订单不物理删除。应用每小时短事务分批删除到期且已完成的幂等记录与过期 Token 撤销记录；Inbox、Outbox、审计和死信不自动删除。
+version 和 revision 由应用在对应事务中增加，不会自动随 updated_at 递增。账号、设备与历史订单不物理删除。应用每小时短事务分批删除到期且已完成的幂等记录与过期 Token 撤销记录；ARCHIVED Outbox 默认保留 90 天后分批删除；其他 Outbox 状态、Inbox、审计和死信不自动删除。
 
 ## 本地约束验证
 

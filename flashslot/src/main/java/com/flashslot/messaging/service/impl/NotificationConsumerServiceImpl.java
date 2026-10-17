@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashslot.auth.mapper.AccountPermissionMapper;
 import com.flashslot.messaging.entity.Notification;
 import com.flashslot.messaging.mapper.*;
+import com.flashslot.messaging.metrics.MessageProcessingMetrics;
 import com.flashslot.messaging.model.*;
 import com.flashslot.messaging.service.NotificationConsumerService;
 
@@ -18,10 +19,15 @@ public class NotificationConsumerServiceImpl implements NotificationConsumerServ
     @Autowired private NotificationMapper notifications;
     @Autowired private ConsumerInboxMapper inbox;
     @Autowired private ObjectMapper json;
+    @Autowired private MessageProcessingMetrics metrics;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void consume(NotificationEvent event) {
+        metrics.consume("notification", () -> consumeAttempt(event));
+    }
+
+    private void consumeAttempt(NotificationEvent event) {
         event.validate();
         long userId = event.payload().get("userId").asLong();
         // 与业务、已读写入口保持用户锁在前；停用账号的历史消息仍正常保存。

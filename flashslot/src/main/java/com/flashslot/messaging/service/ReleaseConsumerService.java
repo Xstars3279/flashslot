@@ -1,6 +1,7 @@
 package com.flashslot.messaging.service;
 
 import com.flashslot.messaging.mapper.ConsumerInboxMapper;
+import com.flashslot.messaging.metrics.MessageProcessingMetrics;
 import com.flashslot.messaging.model.*;
 import com.flashslot.waitlist.service.ReleaseJobService;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +12,11 @@ import org.springframework.stereotype.Service;
 public class ReleaseConsumerService {
     private final ReleaseJobService jobs;
     private final ConsumerInboxMapper inbox;
+    private final MessageProcessingMetrics metrics;
     public void consume(NotificationEvent event) {
+        metrics.consume("release", () -> consumeAttempt(event));
+    }
+    private void consumeAttempt(NotificationEvent event) {
         PublishedEvent.validate(event);
         if(!PublishedEvent.RELEASE.equals(event.eventType())) throw new IllegalArgumentException("不是撮合指令");
         if(inbox.releaseCompleted(event.eventId())>0) return;

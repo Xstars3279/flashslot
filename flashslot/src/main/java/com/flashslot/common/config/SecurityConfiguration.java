@@ -25,8 +25,15 @@ public class SecurityConfiguration {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http, Environment environment, ObjectMapper json) throws Exception {
+        var metricsPeers=java.util.Arrays.stream(environment.getProperty("app.metrics.allowed-networks","127.0.0.1/32,::1/128").split(","))
+            .map(String::strip).filter(s -> !s.isEmpty()).map(org.springframework.security.web.util.matcher.IpAddressMatcher::new).toList();
         http.authorizeHttpRequests(
                 auth -> {
+                    auth.requestMatchers(HttpMethod.GET,"/api/v1/auth/capabilities").permitAll();
+                    // 指标仅允许真实连接来源网段，不信任客户端传入的转发头。
+                    auth.requestMatchers("/actuator/prometheus").access((authentication,context) ->
+                        new org.springframework.security.authorization.AuthorizationDecision(metricsPeers.stream()
+                            .anyMatch(peer -> peer.matches(context.getRequest().getRemoteAddr()))));
                     auth.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/registration/code").permitAll();
                     auth.requestMatchers("/api/v1/auth/logout", "/api/v1/me/password").authenticated();
                     auth.requestMatchers("/api/v1/admin/dead-letters", "/api/v1/admin/dead-letters/**").hasRole("ADMIN");

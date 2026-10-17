@@ -120,7 +120,7 @@ Authorization: Bearer <accessToken>
 - IP 使用服务端 remoteAddr，不直接相信客户端 X-Forwarded-For。以后接反向代理时应配置可信代理来源，否则同一代理的请求共享 IP 窗口。
 - Token 不是永久权限：预约、订单查询和管理接口仍检查数据库当前账号启用状态及角色，停用/降权后相关业务请求拒绝。提供登出撤销与密码修改接口；没有刷新 Token 接口，到期后重新登录。
 
-普通用户可通过手机号验证码注册，注册成功直接登录；管理员账号仍通过管理员账号管理入口创建，初始管理员受控初始化，不提供公开管理员注册。`app_user.password_hash` 必须保存 `BCryptPasswordEncoder(12).encode(密码)` 生成的 BCrypt 哈希，不能保存明文、MD5 或测试夹具中的占位字符串；角色为 USER 或 ADMIN。不要将初始化密码写入迁移或仓库。
+普通用户可通过手机号验证码注册，注册成功直接登录；管理员账号仍通过管理员账号管理入口创建，初始管理员通过[一次性 CLI](../docs/admin-bootstrap.md)初始化，不提供公开管理员注册。`app_user.password_hash` 必须保存 `BCryptPasswordEncoder(12).encode(密码)` 生成的 BCrypt 哈希，不能保存明文、MD5 或测试夹具中的占位字符串；角色为 USER 或 ADMIN。不要将初始化密码写入迁移或仓库。
 
 启动必须提供 `JWT_SECRET`：至少 32 个随机字节的标准 Base64 编码，不配置或格式/长度不合法会启动失败。PowerShell 7 可在首次准备环境时生成：
 
@@ -448,10 +448,19 @@ PowerShell 7、JDK 21、Maven，以及 PATH 中的 MySQL 8.0 mysql/mysqld：
 
 新增配置：`app.cache-lock.watchdog-timeout-ms=30000`、`HOT_RESOURCE_IDS`。Redisson 3.52.0 复用Spring Redis的主机、端口、用户、密码和数据库配置，延迟连接，不另建公网Redis。
 
-排期先在只读快照中读取设备、日历，使用`flashslot:schedule:{resourceId}:{date}:{revision}`缓存公开的格子占用，TTL按上述冷热策略随机取值。预约/取消/转正/日历调整提交后revision改变，下一次查询立即使用新键；旧查询即使晚到回填也只填旧键，不覆盖新版本。因此无需等待异步MQ失效，SCHEDULE_CHANGED事件仍保留NEW。
+排期先在只读快照中读取设备、日历，使用`flashslot:schedule:{resourceId}:{date}:{revision}`缓存公开的格子占用，TTL按上述冷热策略随机取值。预约/取消/转正/日历调整提交后revision改变，下一次查询立即使用新键；旧查询即使晚到回填也只填旧键，不覆盖新版本。因此无需等待异步MQ失效，SCHEDULE_CHANGED 等已登记留痕事件直接进入 ARCHIVED，不参与 MQ 投递；V10 归档旧 NEW，默认 90 天后每小时短事务分批清理。PUBLISHED/Inbox 继续保留以维护防重。
 
 缓存不含个人订单号、用户ID、密码或最终可预约标记；启用账号的本人订单信息在当前快照内单独查询并覆盖显示。开放状态和时间截止每次按当前时间计算。Redis不可用时回源MySQL，并短暂停止缓存访问15秒后尝试恢复；缓存损坏按未命中处理。`SCHEDULE_CACHE_ENABLED=false`可关闭。当前优化减少重复的公开占用联查，仍读取数据库版本与必要的本人占用，不承诺无数据库查询。
 
 Vue3/Element Plus前端位于`../flashslot-web`，运行方法见其README。`../scripts/start-flashslot-local.ps1`启动独立本机体验环境并提供随机密码，`stop-flashslot-local.ps1`按PID、启动时间和路径核对后停止自己启动的服务，保留体验数据库。
 
 完整验证：`pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRabbit -WithRedis`。测试启动随机回环端口的独立MySQL、RabbitMQ、Redis并清理，不连接既有服务。可用`-Test RecoveryIntegrationTest`缩小验证范围。
+
+
+### 注册能力与消息治理补充
+
+`GET /api/v1/auth/capabilities` 是公开、no-store 的能力接口，返回 `registrationEnabled` 与 `registrationMode=DEVELOPMENT|DISABLED`。登录/注册页默认关闭入口，获取到明确启用后才允许操作；生产未接短信时提示联系管理员。此接口不提供验证码，不能绕过注册服务端校验。
+
+消息历史类型由 PublishedEvent 显式登记，未知类型拒绝写入，避免拼写错误静默归档。V10 在原有 16 张表上升级；历史归档清理不删除 NEW/SENDING/FAILED/PUBLISHED、Inbox 或死信。死信按来源队列和正文隔离，保存受控失败原因；管理列表不返回原始正文、哈希或异常堆栈。
+
+[消息指标](../docs/message-metrics.md)包括发布/消费结果与耗时、数据库积压快照和任务逾期；[部署说明](../deploy/flashslot/README.md)提供可选 Prometheus 配置。抓取端点按实际连接来源网段授权，不信任转发头。
