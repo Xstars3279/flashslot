@@ -1,106 +1,56 @@
-# 本机验收记录
+# FlashSlot 验证说明
 
-## 生产入口与消息治理验收（2026-10-17）
+记录日期：2026-10-17。仅保留当前实现的验证证据；服务器状态为最近部署时的快照，不代表持续健康监控。
 
-- 注册能力接口默认关闭，登录/注册页以实际能力决定入口与提交权限；首个管理员使用独立 JDBC CLI，迁移匹配、并发初始化与已有管理员保护均覆盖。
-- V10 将已登记历史事件归档，默认 90 天清理 ARCHIVED；其他消息与 Inbox 不删除。死信保存来源、受控失败分类和接收上下文，管理页展示元数据。
-- 消息发布/消费 Counter 与 Timer、积压及撮合逾期 Gauge 已接真实路径，解析拒绝亦计失败；抓取使用真实连接地址 ACL。Compose 固定镜像摘要，提供可选 Prometheus profile。
-- 前端按上海午夜及恢复可见时更新七天日期窗口，清理旧选择并隔离过期查询响应。
-- 最终完整隔离 MySQL/RabbitMQ/Redis 回归 **268 项，0 失败、0 错误、0 跳过**，构建成功：`.run/governance-final2.log`；结构脚本 **56 项**通过：`.run/governance-schema.log`。前端 **35/35** 及构建成功：`.run/governance-web.log`、`.run/governance-web-build.log`。
-- 官方 promtool 配置与 5 条规则 strict lint 通过；打包 JAR 的 bootstrap 缺少 DB_URL 时固定提示并立即退出，不启动 Spring。独立审查发现的格式拒绝指标盲区已修复并复核关闭，无剩余 P1/P2 发现。
-- 本轮未连接或部署服务器。本机没有 Docker，未实际启动 Compose 监控组合；未接外部告警通知。真实短信、生产容量及备份恢复演练仍需独立验收。
+## 最近结果
 
-## 评审反馈修复验收（2026-10-17）
+| 验证 | 最近结果 | 本机日志/报告 |
+| --- | --- | --- |
+| 完整后端回归：私有 MySQL、RabbitMQ、Redis | 268 项，0 失败、0 错误、0 跳过，打包成功 | `.run/governance-final2.log` |
+| 独立 SQL 结构与约束检查 | 56 项通过 | `.run/governance-schema.log` |
+| 前端测试与生产构建 | 35 项通过、构建成功 | `.run/governance-web.log`、`.run/governance-web-build.log` |
+| 手机号模拟注册专项回归 | 7 项通过、构建成功 | `.run/phone-registration-final.log` |
+| 模拟注册启用后的前端回归 | 35 项通过 | `.run/phone-registration-web.log` |
+| Prometheus 配置和告警规则 | 官方 promtool strict lint 通过，5 条规则 | 本机临时校验工具与配置位于 `.run/prometheus-config-check/` |
+| 公网部署与模拟注册 | 构建哈希、接口、迁移、真实注册/登录链路通过 | `.run/flashslot-server-20261017-verification.json`、`.run/phone-registration-server-verification.json` |
 
-- 无有效可承接候补时，取消、爽约和提前结束在原事务内直接释放未来设备格，保留 RELEASED 记录；有候补才进入 HANDOFF。回归覆盖过期候补、重复取消、事件失败整体回滚及原键重试。
-- 暂时性 5xx 不保存幂等结果；旧版 CALENDAR_NOT_READY 503 在哈希核对后重新评估。预约和候补均验证补齐日历后原键成功，换参数仍冲突。
-- 错误响应增加 errorCode，包含全局异常、安全过滤器和幂等回放；前端保留 error.errorCode 与 response。原 code=1/0 保持兼容。
-- 删除 Redis 封禁缓存与同步回调，停用、凭据版本及 Token 撤销由数据库核验；真实 Token 测试覆盖重新启用不复活旧 Token、停用检查与审计回滚。
-- PAUSED 保留候补但不转正，恢复 ACTIVE 后继续；截止仍过期释放。未配置 APP_PROFILE 默认 production，验证码和 Swagger 关闭，显式 local 仍可联调。
-- MQ 撮合保留，broker 故障时已进入 HANDOFF 的自动撮合仍等待恢复；无人排队的立即释放不依赖 MQ。
-- `pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRabbit -WithRedis`：临时本机 MySQL/RabbitMQ/Redis，**240 项全部执行，0 失败、0 错误、0 跳过**，构建成功且脚本退出码 0。日志 `.run/review-feedback-final.log`。前端 **22/22** 测试通过，构建成功；独立复审无阻断问题。本轮未 SSH 或部署服务器。
+`.run/` 是忽略的本机目录，不随仓库交付。新克隆可通过下面的命令重新生成自己的测试结果；不要把不存在的本机日志当作仓库附件。
 
-## MVP 补齐验收（2026-10-16）
+## 重现验证
 
-本轮仅完成本地 MVP，不做 Docker、远程部署或生产容量压测。
+Windows 需要 PowerShell 7.4+、JDK 21、Maven、Node.js 22.12+、MySQL 8 的 mysql/mysqld、Redis、Erlang。Redis 可通过 REDIS_SERVER_EXE 指定；RabbitMQ helper 下载独立发行包。依赖准备与启动见[根 README](../README.md)。
 
-- 补齐持续运行缺口：应用就绪及每分钟维护上海今天起 14 天设备日历，停机后恢复缺失日期；只插入缺失行，保留历史、关闭状态、开放时间和版本。使用当前设备默认值，暂停设备继续维护，退役设备跳过。体验模式复用同一服务。预约/候补仍限定今天起 7 天。
-- 新增 `GET /api/v1/me/profile` 与“我的账号”页面：本人账号 ID、当前角色、信用分、限制期限、服务器时间和使用规则；按数据库当前状态及服务器时间判定限制，不返回密码，响应禁止缓存。
-- 后端全量：`pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRabbit -WithRedis`，真实私有 MySQL、Redis、RabbitMQ，171 项测试，0 失败、0 错误、0 跳过。日志 `.run/mvp-full-verification.log`。新增 10 项测试覆盖本人数据隔离、禁用账号、限制截止边界、上海日期、停机恢复、默认值变化、保留已有配置、并发补齐、分页及任务失败恢复。
-- 前端：`npm test` 5 项通过，`npm run build` 成功。沿用现有 Vue/Element Plus 布局；个人状态有加载、错误及重试反馈。
-- 最后的体验模式初始化复用改动完成后，重新打包成功；本机 `local,demo` 启动成功，运行 JAR 与最终构建 SHA-256 相同。浏览器实际验证匿名访问账号页跳转登录、登录后回到账号页，展示本人信用分 100/100 及限制状态。截图 `.run/mvp-account.png`。
-- 本机真实依赖冒烟再次通过：20 个请求抢同一时段，1 成功、19 冲突；候补取消、预约取消及幂等回放、公开排期隐私、真实 MQ 通知及标记已读通过。报告 `.run/flashslot-local-verification.json`。这是小规模并发冒烟，不是生产容量结论。
-- 独立只读代码复核未发现阻塞问题。前后端保留运行，分别为 `127.0.0.1:5173` 和 `127.0.0.1:18080`；本轮生成的并发联调设备及测试订单保留在独立体验库。密码仅由启动脚本输出，不保存在本说明中。
+```powershell
+pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRabbit -WithRedis
+pwsh -NoProfile -File scripts/verify-flashslot-schema.ps1
+npm --prefix flashslot-web ci
+npm --prefix flashslot-web test
+npm --prefix flashslot-web run build
+pwsh -NoProfile -File scripts/tests/start-local-state.Tests.ps1
+```
 
-后续范围：Docker/部署与生产压测。账号现可由管理员创建；不提供公开自助注册。消费死信恢复、每日 4 小时配额、账号与设备状态管理、Token 撤销及过期记录清理已补齐，最新验证见本轮补充。
+后端两个验证脚本使用独立临时数据目录、随机回环端口与私有中间件，结束后清理。不要对生产数据库手动设置 FLASHSLOT_PRIVATE_TEST 等私有测试开关。
 
-## 业务补全验收（2026-10-16）
+仅验证注册链路时：
 
-按用户要求先完成账号管理、设备状态与 Token 撤销，完整回归 177 项通过后再实现消费死信恢复、每日 4 小时配额与过期记录清理。
+```powershell
+pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRedis -Test 'RegistrationIntegrationTest,RegistrationDisabledIntegrationTest'
+```
 
-- 最终后端完整回归：`pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRedis -WithRabbit`，187 项，0 失败、0 错误、0 跳过。日志 `.run/final-verification.log`，包含真实 MySQL、Redis、RabbitMQ。
-- 前端：`npm test` 12 项通过，`npm run build` 成功。退出先撤销后清除；撤销网络失败保留凭据用于重试。
-- 数据库：独立空库执行 7 份 SQL 与约束检查，共 52 项通过，日志 `.run/final-schema.log`；本机已有体验库通过 Flyway 增量升级至 V7。
-- 权限与并发：真实 Token 的账号创建/重置/启停、本人旧密码验证、复制 Token 退出后拒绝、密码认证过程中重置的竞争；设备退役与新预约竞争，WAITING、CHECKED_IN、HANDOFF 及历史占用边界；跨设备并发配额、取消退款与候补转正再次核查。
-- 消息：真实 RabbitMQ 消费失败回滚 → DLQ 持久保存 → 管理恢复；恢复仍保留原 eventId/Inbox 防重，审计失败整体回滚；坏格式保留待核查。清理测试运行真实定时任务，覆盖跨 500 条批次、未完成和未到期记录保留。
-- 浏览器：管理员登录、账号列表/创建表单/本人改密入口可见；新建 ID=6 的独立验收设备完成暂停、恢复、退役，已有设备未修改；独立死信样本 ID=1 经管理页恢复为 RECOVERED，只生成 1 条测试通知并留存审计；退出后数据库存在 1 条撤销记录。截图 `.run/device-management.png`、`.run/management-audit.png`。密码变更和账号创建的提交通过自动化接口测试验证。
-- 独立代码审查未发现高、中风险问题，按审查建议补充退役与改密竞争用例。启动脚本的进程路径记录时序问题通过 `scripts/tests/start-local-state.Tests.ps1` 复现并修复，测试通过。
+## 已覆盖行为
 
-本轮临时测试中间件与体验服务均已停止。保留原有本机体验库和上述验收历史，启动脚本可重新生成体验密码；未连接远程服务器，未部署、提交或推送代码。自动清理只针对到期已完成幂等记录及过期撤销记录，业务订单、审计、Inbox/Outbox、通知和死信继续保留。
+- 数据库联合唯一约束、多格 INSERT 原子性、账号权限、订单归属、跨设备时间冲突、每日配额、回滚与锁竞争。
+- 取消/爽约/提前结束后没有有效候补立即释放；有候补进入 HANDOFF；重复取消与关联错误不能误删其他订单占用。
+- 候补 FIFO、到期、PAUSED 不转正、重复撮合防重、业务提交与消费确认之间中断、漏派补偿及异常任务恢复。
+- 到期游标扫描跨过失败批次继续处理健康记录，故障修复后可重试。
+- JWT 凭据版本与撤销、改密/启停竞争、管理操作审计回滚、可信代理与共享登录限流。
+- 模拟验证码冷却/失效/输错上限、注册固定 USER、手机号并发唯一性、自动登录失败时账号回滚、显式关闭注册。
+- Outbox 发布确认与租约、Inbox 防重、真实消费失败重试、断开 DLX 时失败原文落库、存储故障重投、死信恢复与上下文隔离。
+- ARCHIVED 留痕与有限期清理、消息指标结果与耗时、数据库快照故障、端点真实来源 ACL。
+- 前端 Token 失效处理、退出失败保留凭据、幂等键复用、查询乱序、模拟验证码显示、能力关闭时禁止提交、上海午夜日期更新。
 
-## 管理员与使用者分工验收（2026-10-16）
+服务器验收与环境差异见[部署记录](FlashSlot-服务器联调.md)。注册临时账号已清理，不保存验收用密码或 Token。
 
-- USER 使用预约、候补、签到、个人列表与通知；ADMIN 仅用于管理，登录进入设备管理，保留账号资料和密码修改。
-- 前端隐藏管理员的个人预约入口，直接访问相关路由跳转管理页；后端同时校验 Token 角色和数据库当前角色，幂等回放及候补转正也核对 USER 身份。管理员仍可查询、带原因取消他人订单；已有历史订单保留，后台结算继续执行。
-- 先通过新增回归复现管理员创建预约返回 201，再完成限制。更新旧测试中管理员个人列表、管理员候补夹具；新增旧 USER 身份与数据库 ADMIN 角色不一致、候补入列后角色变更的覆盖。
-- 最终真实 MySQL、Redis、RabbitMQ 全量回归 190 项通过，0 失败、0 错误、0 跳过，日志 `.run/role-separation-final.log`；前端 14 项通过，构建成功。独立只读审查未发现本轮功能或权限问题。本轮未启动体验页面、未连接远程服务器，未提交或推送。
+## 尚未验证的范围
 
-## 手机号注册本地验收（2026-10-16）
-
-- 仅更新本地，未连接或修改服务器。新增 V8 手机号唯一字段；普通用户通过手机号、六位验证码、密码注册后自动登录，后续手机号密码登录。管理员仍仅由管理员创建。
-- 六位码直接展示前端，明确标注联调模式，不发送真实短信，不证明手机号归属。Redis保存指纹5分钟，同号60秒冷却、5次错误失效，并限制手机号与来源IP频率；事务失败可重试，提交后清理，唯一约束防止重复创建。
-- 后端真实 MySQL/Redis/RabbitMQ 完整回归196项通过，0失败/错误/跳过，日志 `.run/registration-final.log`；前端20项通过、构建成功；独立SQL验证53项通过，日志 `.run/registration-schema.log`。独立只读审查未发现本轮功能或权限问题。
-- 浏览器本地实际获取验证码、完成注册并自动进入用户首页，账号页显示使用者角色；测试手机号13900001016、账号ID13保留在独立本机体验库。测试会话已退出，截图 `.run/registration-account.png`，不在文档保存密码。体验服务验收后按启动脚本记录停止，保留数据库。
-
-## Redis封禁与热点缓存本地验收（2026-10-16）
-
-> 历史验收记录：2026-10-17 后续评审已移除 Redis 封禁缓存及对应配置；账号停用、凭据版本和 Token 撤销由数据库核验，热点/空值/排期缓存保留。以下描述记录当时实现，当前行为以后端 README 为准。
-
-- 仅更新本地，未连接服务器、未推送。引入 Redisson 3.52.0；账号封禁Redis加速、设备元数据/空值缓存、公共排期双检互斥回填、随机TTL、新设备首日热点和固定热点ID配置已实现。
-- 账号停用的Redis状态在事务提交后同步，单调凭据版本与启用标记防止乱序回调；JWT先验签，再查Redis，仍查数据库enabled/version/revoked_token。密码登录在BCrypt前可快速拒绝封禁；Redis丢失或故障不能绕过数据库停用。信用预约处罚仍不等于账号封禁。
-- 不存在设备重复查询只查库一次，空值5–10秒；热点元数据120–180秒，普通20–40秒；排期热60–90秒、冷30–45秒。公共缓存不含本人订单号或可预约标记。锁只用于回填，tryLock不传leaseTime，看门狗自动续期；等待超时返回503，Redis故障则回源。
-- 慢回填竞态已通过下述数据库version键统一解决；当前不使用Redis随机标记。
-- 最终 `pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRedis -WithRabbit`：208项通过、0失败/错误/跳过，构建成功，日志 `.run/redis-hot-final-passed.log`。包括8请求仅一次占用回填、12用户抢同一设备区间仅1成功和2格占用、占用revision变更后立即新缓存、看门狗超过初始租期仍持锁、随机TTL分散、管理员更新/新增清除正负缓存、封禁乱序/重新登录/Redis读写故障与事务回滚。
-- 本轮没有修改预约规则或前端页面，数据库行锁、双占用唯一约束、7天/提前30分钟/每日8格和跨设备不重叠规则继续由完整回归覆盖。临时验证用MySQL、Redis和RabbitMQ均由脚本清理。
-
-## 数据库版本号统一缓存（2026-10-16）
-
-- 设备详情统一采用 `flashslot:resource:{id}:{version}`，与排期revision策略一致。版本直接从数据库读取，和详情处于同一REPEATABLE_READ快照；更新与version递增、审计同事务，提交后删除旧键。旧回填允许写旧版本键，但新请求只访问数据库当前版本，锁也按版本隔离，不阻塞新版本。
-- 移除设备缓存中的Redis随机标记/Lua机制。旧键删除失败不影响新请求正确性。缺失设备使用missing键，新建设备有version=0后不再读取旧missing空值；每次仍有一次轻量版本查询，不能把空值缓存描述为完全不查数据库。
-- 先用阻塞旧回填测试复现原实现中新请求被旧锁阻塞（`.run/db-version-cache-red.log`），改为版本键后专项通过。新增缓存漏删、数据库更新与审计回滚用例；保留并发抢预约、互斥回填、看门狗、随机TTL等验证。独立只读复核未发现新问题。
-- 最终真实MySQL/Redis/RabbitMQ全量回归210项通过，0失败/错误/跳过，构建成功，日志 `.run/db-version-cache-final.log`。临时中间件由脚本清理；未连接服务器、未部署或推送。
-
-## 候补撮合 MQ 与兜底（2026-10-16，本地）
-
-- 半小时调度可靠写入 RELEASE_DISPATCHED Outbox，独立 RabbitMQ 队列消费执行撮合；启动及每分钟补偿仍以最近半小时筛选到期任务。固定任务/半小时事件 UUID 防重复派发，排除本轮已派发项，52个积压任务验证后续批次可达。
-- release-v1 Inbox、任务锁/终态、候补状态、精确时间格归属与订单唯一约束共同防止重复转正/释放。真实 RabbitMQ 重复投递、6个并发执行、业务提交后 Inbox 写入前中断均未产生重复订单或释放事件。
-- 消费回滚后重试3次，耗尽才记录一次业务失败并进入死信；下半小时数据库补偿派发新事件。相同退避周期的重复失败不会叠加次数。归属/完整性异常或5轮失败仍转人工检查。
-- 管理恢复只原子重排撮合 Outbox，与审计/死信恢复状态/幂等一起提交；审计失败回滚已验证。同一原消息恢复后再次失败可重新进入FAILED，再次恢复成功。
-- 独立代码审查发现并修正提前退避导致重试误完成、死信再次失败不回到FAILED两处问题，复核未发现新阻塞项。全量测试最初暴露不同测试上下文消费者抢消息，已增加Rabbit测试类结束时关闭上下文的隔离措施。
-- 最终真实 MySQL/Redis/RabbitMQ 全量220项通过，0失败/错误/跳过，构建成功：`.run/release-final.log`。结构迁移55项通过：`.run/release-schema.log`；前端20项通过且构建成功：`.run/release-web-test.log`、`.run/release-web-build.log`。V9只增加Outbox查重索引，仍为16张表。
-- 仅本地更新，未连接、部署或推送服务器，临时验证中间件由脚本清理。核心预约/候补/恢复流程已形成闭环；真实短信、生产容量、生产备份恢复演练及完整历史归档策略仍需单独验收。此处测试不等于线上容量结论。
-
-## 前次验收（2026-10-15）
-
-本轮按顺序完成候补收尾、管理员恢复并回归，再完成Redis排期缓存与Vue3/Element Plus本机前端。
-
-- 后端：`pwsh -NoProfile -File scripts/verify-flashslot-foundation.ps1 -WithRabbit -WithRedis`，161项测试，0失败、0错误、0跳过。日志`.run/flashslot-final.log`，Surefire报告`flashslot/target/surefire-reports`。
-- 前端：`cd flashslot-web; npm test; npm run build`，5项测试通过、构建成功。覆盖旧Token不干扰密码登录、网络丢响应时幂等键复用、参数变化、消息筛选请求乱序、日历跨日期乱序与保存目标绑定。
-- 浏览器实际操作：普通用户登录、明日设备预约、订单详情及签到窗口、取消预约；另一账号查看占用、加入候补、取消候补、真实消息到达及标记已读；管理员信用分99→100恢复与操作审计展示。
-- 小规模并发闭环：20个请求抢一个时段，1成功、19冲突；数据库仅1订单、取消后2个HANDOFF设备格、0用户格、1释放任务。候补取消、重复取消回放、公开排期隐私、真实MQ通知及已读通过。报告`.run/flashslot-local-verification.json`。这是本机并发冒烟，不是生产容量结论。
-- 本机启动/停止/重启验证通过：独立MySQL、Redis、RabbitMQ；按进程身份停止父子进程；MySQL正常关闭后保留数据；复制JAR运行，构建不再因运行包占用而失败。前后端仅绑定127.0.0.1。
-- 独立代码审查发现并修复两项前端请求竞态，修复后再次复核通过。
-
-本机前端`http://127.0.0.1:5173`，后端`http://127.0.0.1:18080`。账号`demo-user`和`demo-admin`，密码由启动脚本输出；本文不保存密码。启动/停止方式见`flashslot-web/README.md`。
-
-前次尚未覆盖：远程部署与生产容量压测、消费端死信管理重放、每日总时长配额（后两项已在本轮补齐）。目前支持Outbox FAILED发布重试；候补匹配严格每30分钟，其他到期扫描每5秒。
+没有生产容量结论，未做完整备份恢复演练或 HTTPS 接入。可选 Prometheus Compose 组合未启用，告警规则未接外部通知。既有本机小规模并发冒烟与 HTTP 检查不能替代这些验收。

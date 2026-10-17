@@ -2,7 +2,7 @@
 
 使用已经测试通过的 JAR 和前端 dist，独立 Compose 项目名为 flashslot。
 在发布目录中放置 app.jar、web/、compose.yml、nginx.conf、rabbitmq.conf；启用监控还需 prometheus.yml、message-alerts.yml。
-根目录专用 `.env` 保存 DB_PASSWORD、MYSQL_ROOT_PASSWORD、RABBIT_PASSWORD、JWT_SECRET 和 HTTP_PORT；权限设为 600，不入库。
+部署根目录的专用 `.env` 保存 DB_PASSWORD、MYSQL_ROOT_PASSWORD、RABBIT_PASSWORD、JWT_SECRET 和 HTTP_PORT；权限设为 600，不入库。可参考 [环境模板](.env.example)，必须填入自己的数据库、RabbitMQ 密码和随机 JWT 密钥；模板中的 true 仅用于模拟注册。
 
 启动：`docker compose --env-file /opt/flashslot/.env -f /opt/flashslot/current/compose.yml up -d`。
 状态：同一命令前缀加 `ps`；应用日志加 `logs --tail=100 app`。
@@ -10,7 +10,7 @@
 
 仅 Nginx 的 HTTP_PORT 对外开放；API 共用 `/api/v1`；`/healthz` 查看服务健康。
 MySQL、Redis、RabbitMQ 不发布宿主机端口。联调时前端开发服务器的 API_TARGET 可指向同一 HTTP 地址。
-此配置面向小内存联调机，未启用 demo profile；首个管理员需在 Flyway 迁移完成后用[一次性 CLI](../../docs/admin-bootstrap.md)初始化。生产默认关闭注册，页面按后端能力隐藏注册入口；当前未接真实短信服务商。
+此配置面向小内存联调机，未启用 demo profile；首个管理员需在 Flyway 迁移完成后用[一次性 CLI](../../docs/admin-bootstrap.md)初始化。应用默认关闭注册；模拟演示可通过显式开关启用，见下文。当前未接真实短信服务商。
 
 登录限流由 Redis 共享计数，默认 IP 30 次/60 秒、账号 5 次/60 秒。Redis 故障会短暂降级到各实例自己的内存保护，并输出告警日志；不提供故障期间的全局严格额度。
 
@@ -42,3 +42,5 @@ Prometheus 在 Compose 内抓取 `app:8080/actuator/prometheus`，数据卷保�
 需要模拟自主注册时，在部署 `.env` 中显式设置 `REGISTRATION_DEVELOPMENT_CODE_ENABLED=true`，然后执行 `docker compose --env-file /opt/flashslot/.env -f /opt/flashslot/current/compose.yml up -d --no-deps --force-recreate app`。Compose 将该开关传给应用；无需改 production profile 或开启 Swagger。默认仍为 false。
 
 启用后登录页出现手机号注册入口：用户获取六位验证码，验证码直接返回并显示在前端，再输入验证码与自设密码注册，成功自动登录为 USER。不发送真实短信、不证明手机号归属，页面明确标注联调模式。保留手机号 60 秒冷却、每 24 小时 10 次、来源 IP 每小时 60 次、验证码 5 分钟 TTL 和输错 5 次失效；登录限流继续独立生效。手机号与用户名唯一索引防重复注册。
+
+现有演示服务器有运行镜像与代理 IP 的部署差异，覆盖配置前阅读[服务器记录](../../docs/FlashSlot-服务器联调.md)。

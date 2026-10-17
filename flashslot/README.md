@@ -1,9 +1,9 @@
 # FlashSlot 后端
 
 独立 Maven 工程，Java 21 / Spring Boot 3.5.6，按业务包组织的模块化单体。
-在 IDE 中打开本目录的 `pom.xml`。不继承上层微服务练习的父 POM，也不需要 Nacos。
+在 IDE 中打开本目录的 `pom.xml`；后端使用独立 Maven 构建，不依赖根目录聚合 POM。
 
-## 本阶段交付
+## 已实现能力
 
 - Web、Validation、Security/OAuth2 JWT 基础库、MyBatis-Plus 3.5.14、MySQL 驱动。
 - Redis、RabbitMQ、Flyway/MySQL 支持、Actuator、Prometheus 指标库。
@@ -25,8 +25,8 @@
 - `GET /api/v1/admin/resources`：分页包含 ACTIVE、PAUSED、RETIRED；公开设备列表仍仅展示 ACTIVE。
 - `PATCH /api/v1/admin/resources/{id}/status`：status、version、reason；PAUSED 禁止新申请但保留已有订单和候补。RETIRED 为终态；资源排他锁内检查全部未来/进行中订单、未到期候补和有效 HANDOFF，存在冲突返回 409。
 - 每日预约按 Asia/Shanghai 业务日期、同一用户跨设备合计最多 8 格；创建预约和候补转正都在用户锁内汇总 charged_slots。候补入列不预扣，转正时不足则以 DAILY_QUOTA_EXCEEDED 拒绝。取消/提前结束只返还尚未开始格，历史已消耗格仍计入配额。升级前已存在的超额预约不自动撤销，但会阻止继续增加当日用量。
-- `GET /api/v1/admin/dead-letters`：查看持久保存的消费死信摘要，不暴露原始消息；`POST /api/v1/admin/dead-letters/{id}/replay` 带 Idempotency-Key 和 reason，在同一事务执行原消费、Inbox、通知、恢复状态和审计。格式/版本不支持返回 409 并保留记录，不允许从管理页改写消息内容。DLQ 接收在数据库提交后才 ACK，存储失败退避并重新入队；旧死信队列消息也会被收录。相同原始消息按 SHA-256 去重累计接收次数。
-- 历史清理默认每小时运行，一批各删除最多 500 条到期的已完成幂等记录及 Token 撤销记录，每轮最多 20 个短事务；失败留待下轮。`HISTORY_CLEANUP_SCHEDULING_ENABLED=false` 可关闭。保留订单、账号、审计、通知、Outbox、Inbox 和死信历史，避免未经确认的历史保留规则破坏追溯与消费防重。
+- `GET /api/v1/admin/dead-letters`：查看持久保存的消费死信摘要，不暴露原始消息；`POST /api/v1/admin/dead-letters/{id}/replay` 带 Idempotency-Key 和 reason，在同一事务执行原消费、Inbox、通知、恢复状态和审计。格式/版本不支持返回 409 并保留记录，不允许从管理页改写消息内容。DLQ 接收在数据库提交后才 ACK，存储失败退避并重新入队；旧死信队列消息也会被收录。按来源队列与原文 SHA-256 去重并累计接收次数，UNKNOWN 来源兼容旧哈希。
+- 历史清理默认每小时运行，一批各删除最多 500 条到期的已完成幂等记录及 Token 撤销记录，每轮最多 20 个短事务；失败留待下轮。`HISTORY_CLEANUP_SCHEDULING_ENABLED=false` 可关闭。ARCHIVED 留痕事件默认保留 90 天并分批清理；保留订单、账号、审计、通知、其他 Outbox 状态、Inbox 和死信，维护追溯与消费防重。
 
 ## 目录
 
@@ -46,13 +46,13 @@ src/main/java/com/flashslot/
 src/main/resources/
   application.yml
   application-local.yml
-  db/migration/           V1–V9
+  db/migration/           V1–V10
 src/test/java/            私有 MySQL 集成测试
 ```
 
 设备资源代码位于 `resource/controller`、`resource/service/impl`、`resource/mapper`，请求和响应在 `resource/dto`、`resource/vo`。
-`auth/mapper`、`auth/service` 提供本次管理写入所需的当前账号权限检查；`operations` 提供同事务审计写入及管理员审计查询；`messaging` 提供通知接口、Outbox 投递和通知消费。
-其他模块后续按功能加入 Controller / Service / Mapper，不生成空服务类。
+`auth/mapper`、`auth/service` 提供当前账号权限检查；`operations` 提供同事务审计写入及管理员审计查询；`messaging` 提供通知接口、Outbox 投递和通知消费。
+booking、resource、waitlist 等模块按业务功能提供 Controller / Service / Mapper。
 
 订单详情、本人分页和分页锚点的完整 SQL 位于 `src/main/resources/mapper/booking/BookingReadMapper.xml`；`BookingReadMapper` 仅保留方法声明与参数绑定，便于直接查看联表条件和动态分页条件。
 
@@ -163,7 +163,7 @@ $env:JWT_SECRET = [Convert]::ToBase64String([Security.Cryptography.RandomNumberG
 
 Controller 和全局异常处理直接返回 `Result<T>`，不使用 ResponseEntity。设备版本通过响应的 data.version 返回，再通过修改 DTO 的 version 传入，不使用 ETag/If-Match 或字符串版本解析。
 PATCH 的 version 必填；可修改名称、位置、默认开放范围，至少提供一个配置字段；配置字段的 null 表示不修改。开放范围满足 `0 <= start < end <= 48`。
-修改默认开放范围不会覆盖已生成日历。当前拒绝 status 等未知字段，暂停/退役在后续预约联动设计中实现；单日日历调整使用下述日历接口，不提供物理删除。
+修改默认开放范围不会覆盖已生成日历。此接口拒绝 status 等未知字段，暂停/恢复/退役使用独立的设备状态接口；单日日历调整使用下述日历接口，不提供物理删除。
 错误返回 `{ "code": 0, "msg": "...", "data": null }`，参数错误 400、未认证 401、无权限/禁用 403、设备不存在 404、版本冲突 409。
 
 管理接口要求 Bearer Token 中的 ADMIN 权限，并在业务事务中按当前用户 ID 检查数据库启用状态及 ADMIN 角色。既有业务测试显式注入带 ID 的身份，登录联调测试使用真实签发的 Token。
@@ -213,7 +213,7 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 
 两个接口都要求登录并检查数据库当前账号仍启用，DEMO 账号不能访问正式订单。信用处罚不妨碍查询已有订单；设备暂停/退役也不会隐藏历史订单。我的订单列表仅向 USER 开放且始终限定当前账号；管理员可通过详情接口查询他人订单，跨用户访问须同时具备认证上下文 ROLE_ADMIN 和数据库当前 ADMIN 角色。无权查看与不存在的订单统一返回 404 BOOKING_NOT_FOUND，不泄露他人订单是否存在。未登录 401，停用账号 403 ACCOUNT_DISABLED，其他无效账号 403 FORBIDDEN。
 
-查询以一个只读一致快照读取账号、游标、订单和释放进度，不加写锁，不推进订单状态。返回数据库已持久化的当前状态，与创建接口的首次幂等响应快照不同。取消路径会归一化已到期的爽约/完成状态，但签到接口和后台扫描仍待实现，单纯超过时间不会在查询时自动改变状态。响应不返回内部用户 ID、订单 ID、关联数据库 ID 或任务内部错误日志。
+查询以一个只读一致快照读取账号、游标、订单和释放进度，不加写锁，不推进订单状态。返回数据库已持久化的当前状态，与创建接口的首次幂等响应快照不同。取消路径会归一化已到期的爽约/完成状态，签到接口和后台扫描按各自业务入口推进状态，单纯超过时间不会在只读查询中自动改变状态。响应不返回内部用户 ID、订单 ID、关联数据库 ID 或任务内部错误日志。
 
 ## 取消预约与候补（本批三个接口）
 
@@ -241,7 +241,7 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 
 - 锁序：幂等 → 资源共享 → 日历排他 → 订单 → 操作者/订单用户按 ID 升序 → 占用/账本 → 事件/审计。
 - CONFIRMED 在签到截止前取消，变为 CANCELED/USER_CANCEL；CHECKED_IN 且未结束时为 CANCELED/EARLY_FINISH。管理员取消他人订单使用 ADMIN_CANCEL。
-- 只处理每格开始时刻大于等于锁后 decisionTime 的未开始后缀；精确边界时该格可释放，超过边界即保留。原订单与已开始格保留，chargedSlots 扣减释放格数，不引入尚未确定的每日时长配额。
+- 只处理每格开始时刻大于等于锁后 decisionTime 的未开始后缀；精确边界时该格可释放，超过边界即保留。原订单与已开始格保留，chargedSlots 扣减释放格数，用户锁内汇总用于每日跨设备 8 格配额。
 - 持有日历锁时检查能够承接该区间/后缀的有效 WAITING 候补：有候补时未来设备格从 BOOKED 改为 HANDOFF，并关联 PENDING release_job；没有时按精确 booking_id 当场删除未来设备占用，保留 RELEASED 释放记录，立即恢复直约，无需等待整点/半点或 MQ。已过期及结束格不一致的候补不阻塞释放。对应用户格按精确订单归属删除。数量不符立即整体回滚，不能误释放他人占用。
 - CANCELED/NO_SHOW/COMPLETED 重复取消直接返回当前结果，不重复创建任务、退款或扣分。CONFIRMED 恰好到签到截止时先归一化 NO_SHOW；CHECKED_IN 恰好到结束时先归一化 COMPLETED，不能伪装成普通取消。
 - 取消触发的 NO_SHOW 同事务记录唯一信用账本，最多扣 10 分且不低于 0；扣分后低于 60 时，restriction_until 取原值与 decisionTime+7 天的较晚值。签到、取消和独立爽约/完成扫描器共用状态转换逻辑。
@@ -259,7 +259,7 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 - 成功 HTTP 201，data 为 WaitlistView：waitlistNo、resourceId、resourceName、resourceLocation、bookDate、startSlot、endSlot、purpose、status、reason、expireAt、createdAt、updatedAt、matchedOrderNo、queuePosition。queuePosition 是当前未过期 WAITING 的近似位置，从 1 开始，不承诺一定转正；非有效排队记录为 null。幂等回放保留首次位置，列表读取当前位置。
 - GET 返回 `Result<WaitlistPage>`，items、nextCursor、hasMore；默认 20 条，最多 100。nextCursor 为末条候补编号，下页原样传 cursor，按创建时间和 ID 倒序稳定翻页，末页 null。只读本人记录，管理员不使用个人候补功能；别人的游标与未知游标统一返回 400 INVALID_CURSOR。不暴露排在前面的其他用户身份。
 
-**自动撮合通过 MQ 执行，按半小时派发。** 上海时间每小时整点、半点扫描到期的 PENDING 任务，原子写入 `RELEASE_DISPATCHED` Outbox；独立 `flashslot.release` 队列的消费者执行撮合。启动时及每分钟执行补偿扫描，筛选时间严格取最近整点或半点，刚取消的任务仍等下一半小时。每任务每半小时用固定 UUID，重复或并发扫描不会创建多条相同指令；排除本轮已派发任务，队头积压不会挡住后续批次。
+**自动撮合通过 MQ 执行，按半小时派发。** 上海时间每小时整点、半点扫描到期的 PENDING 任务，原子写入 `RELEASE_DISPATCHED` Outbox；独立 `flashslot.release` 队列的消费者执行撮合。启动时及每分钟执行补偿扫描，筛选时间严格取最近整点或半点，刚取消且进入 HANDOFF 的任务仍等下一半小时；无候补的立即释放不依赖此派发。每任务每半小时用固定 UUID，重复或并发扫描不会创建多条相同指令；排除本轮已派发任务，队头积压不会挡住后续批次。
 
 A 取消时若存在有效的可承接候补则进入 HANDOFF，否则立即 RELEASED 并恢复直约。消费者按完整区间 FIFO 重新检查候补用户资格、每日配额和时间冲突；合格者创建正式预约，候补和任务变为 MATCHED。PAUSED 设备不生成转正订单，已有候补和交接保留，恢复 ACTIVE 后在后续派发周期继续；到期仍按截止规则清理。无人符合时变为 RELEASED 并恢复直约。每个候选使用独立短事务，订单、两类占用、候补状态、任务和业务 Outbox 同事务提交。`release-v1` Inbox 过滤已完成消息；业务提交后但 Inbox/ACK 前崩溃，由任务终态、候补状态、时间格精确归属与订单唯一约束防止重复转正或释放。消息不承诺只投递一次。
 
@@ -315,7 +315,7 @@ A 取消时若存在有效的可承接候补则进入 HANDOFF，否则立即 REL
 
 自动到期任务在启动 5 秒后开始，每次结束后间隔 5 秒扫描，使用独立调度线程，单批最多 100 条，按截止时间和订单 ID 排序。扫描一轮时固定到期截止时间，以 `(到期时间, ID)` 游标跨调度继续；失败记录也推进游标，避免最早 100 条异常阻塞后续健康订单，扫完后从头重试。固定截止时间保证持续新增记录不会阻止扫描绕回；游标仅在进程内，重启从头扫描，业务状态和约束负责幂等。CONFIRMED 且签到截止已到转为 NO_SHOW；CHECKED_IN 且结束时间已到转为 COMPLETED，保留签到时间与历史占用。每条订单使用独立事务，单条失败回滚并记录日志；多实例同时扫描只会生效一次。可通过 `BOOKING_EXPIRY_SCHEDULING_ENABLED=false` 关闭本任务，不影响候补扫描开关。
 
-爽约每单只扣一次 10 分、最低到 0，分数低于 60 时延长固定 7 天预约限制；封禁或角色变更不会阻止后台结算。只将尚未开始的设备格转为 HANDOFF、删除相应用户格并创建释放任务，已开始格保留历史记录，候补仍在上海整点/半点处理。例如 09:00–11:00 的订单在 09:15 爽约，09:00–09:30 保留，09:30–11:00 进入候补处理。若任务迟到至整个区间已结束，仍记爽约但不创建无未来时段的释放任务。每日跨设备合计最多 8 格（4 小时），用户锁内汇总 charged_slots；已开始的格仍计入当日配额。
+爽约每单只扣一次 10 分、最低到 0，分数低于 60 时延长固定 7 天预约限制；封禁或角色变更不会阻止后台结算。有有效可承接候补时，只将尚未开始的设备格转为 HANDOFF、删除相应用户格并创建释放任务；无候补时直接释放。已开始格保留历史记录，候补仍在上海整点/半点处理。例如 09:00–11:00 的订单在 09:15 爽约，09:00–09:30 保留，09:30–11:00 有候补时进入交接，无候补时直接释放。若任务迟到至整个区间已结束，仍记爽约但不创建无未来时段的释放任务。每日跨设备合计最多 8 格（4 小时），用户锁内汇总 charged_slots；已开始的格仍计入当日配额。
 
 ## 日历与排期接口
 
@@ -343,12 +343,12 @@ A 取消时若存在有效的可承接候补则进入 HANDOFF，否则立即 REL
 - 日历变更、SCHEDULE_CHANGED Outbox 和审计同事务，任一步失败整体回滚。缓存通过当前数据库revision换键立即失效，不依赖MQ消费者；SCHEDULE_CHANGED保留为业务事件，发布器不会将其误标为通知已投递。
 
 Controller、Service、Mapper 的新增方法与时间格辅助方法均提供用途和约束注释。
-当前设备创建时生成 14 天日历；按天滚动补充日历的定时任务后续实现，不在排期查询中隐式生成日历。
+设备创建时生成 14 天日历；应用启动及每分钟补齐上海今天起 14 天内的缺失日历，不在排期查询中隐式生成，也不覆盖已有配置。
 
 ## 实体约定
 
 本项目一张表对应一个持久化实体，不代表每个实体都需要公开 CRUD 接口。
-DTO 用于请求/响应、VO 用于查询展示，后续独立定义；实体不直接返回前端，尤其不能暴露密码哈希。
+DTO 定义请求字段、VO 定义响应展示；实体不直接返回前端，尤其不能暴露密码哈希。
 
 - Lombok `@Getter`、`@Setter`、`@NoArgsConstructor`；不默认生成 `toString/equals/hashCode` 或全字段构造。
 - 请求 DTO、响应 VO、Result 统一使用普通 Java class，在类中声明 private 字段，并用 Lombok 简化 Getter/Setter/构造方法，不使用 record。`@RequestBody @Valid` 绑定并验证 JSON，列表查询使用 `@ModelAttribute @Valid ResourceQueryRequest` 绑定 URL 参数。
@@ -356,7 +356,7 @@ DTO 用于请求/响应、VO 用于查询展示，后续独立定义；实体不
 - UTC `DATETIME(3) → Instant`，统一使用 `UtcInstantTypeHandler`；JSON → `JsonNode`，使用 JacksonTypeHandler；BINARY(32) → byte[]。
 - 状态当前使用 String，保持 SQL 枚举原值；业务层实现时再封装状态转换，不把数据库 CHECK 当作完整状态机。
 - 自增单主键使用 `@TableId(AUTO)`；事件 UUID 等应用分配的单主键使用 INPUT。
-- ResourceDay、SlotOccupation、UserSlotOccupation、ApiIdempotency、ConsumerInbox 是联合主键表：明确映射每个字段，不标假单主键，不使用 BaseMapper 的单 ID CRUD。后续写显式 SQL，WHERE 条件包含完整业务键。
+- ResourceDay、SlotOccupation、UserSlotOccupation、ApiIdempotency、ConsumerInbox 是联合主键表：明确映射每个字段，不标假单主键，不使用 BaseMapper 的单 ID CRUD。使用显式 SQL，WHERE 条件包含完整业务键。
 - WaitlistRecord.activeMarker 是数据库生成列，禁止 INSERT/UPDATE 写入。
 - 设备 Resource 使用 `@Version` + `OptimisticLockerInnerInterceptor`，通过 MyBatis-Plus `updateById` 按旧版本更新并递增；其他实体的 version/revision 仍按各自业务 SQL 维护，不能用设备配置乐观锁代替预约事务与状态机。
 - ResourceMapper、AdminAuditMapper、AccountPermissionMapper 继承 `BaseMapper`；设备服务继承 `ServiceImpl`，接口继承 `IService`，基础 CRUD 使用 MyBatis-Plus，列表使用 LambdaQueryWrapper。联合主键日历批量写入与账号 `FOR UPDATE` 仍使用显式 SQL，不假设框架支持联合主键单 ID CRUD。
@@ -387,11 +387,11 @@ java -jar flashslot/target/flashslot-0.0.1-SNAPSHOT.jar
 
 Redis/RabbitMQ 配置使用 REDIS_HOST/REDIS_PORT/REDIS_PASSWORD 和 RABBIT_HOST/RABBIT_PORT/RABBIT_USERNAME/RABBIT_PASSWORD。
 通知模块默认连接 RabbitMQ，需按上述环境变量配置已启动的 broker；通知网络发送不在预约事务内，MQ 故障不会撤销已提交订单。Redis缓存可关闭或故障回源。就绪探针仅包含数据库和应用就绪状态。
-后续启用消费者后需要启动这些中间件。Compose 和完整 M0 环境交付属于后续步骤。
+消费者已启用，需要可用的中间件；Compose 与运行说明见 [部署目录](../deploy/flashslot/README.md)。
 
-Flyway 在应用启动时执行 V1–V9，来源是上层 `db/01–09` 的当前 16 表版本。V9 仅增加 Outbox 派发查重索引，不增加表。
+Flyway 在应用启动时执行 V1–V10，对应上层 `db/01–10` 的当前 16 表版本；V10 增加历史归档状态与死信上下文，不增加表。
 **使用 Flyway 管理的新库不要先手工执行 db SQL。** 已有手工建表的库需要单独核对和建立迁移基线，当前不自动 baseline。
-迁移一旦应用就保持不可变；后续结构变化新增 V6 等迁移，不修改已部署脚本。
+迁移一旦应用就保持不可变；后续结构变化新增下一编号迁移，不修改已部署脚本。
 
 ## 本地隔离验证
 
