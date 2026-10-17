@@ -83,6 +83,7 @@ public class BookingLifecycleServiceImpl implements BookingLifecycleService {
         int released = completed ? 0 : order.getEndSlot() - first;
         ReleaseJob job = null;
         if (released > 0) {
+            boolean waiting=bookingMapper.hasReleaseCandidate(order,first,decisionTime);
             job = new ReleaseJob();
             job.setJobNo("RJ_" + UUID.randomUUID());
             job.setSourceBookingId(order.getId());
@@ -90,12 +91,13 @@ public class BookingLifecycleServiceImpl implements BookingLifecycleService {
             job.setBookDate(order.getBookDate());
             job.setStartSlot(order.getStartSlot());
             job.setEndSlot(order.getEndSlot());
-            job.setEffectiveStartSlot(first);
-            job.setStatus("PENDING");
+            job.setEffectiveStartSlot(waiting?first:order.getEndSlot());
+            job.setStatus(waiting?"PENDING":"RELEASED");
             job.setAttempts(0);
             job.setNextRunAt(decisionTime);
             requireRows(jobMapper.insert(job), 1);
-            requireRows(bookingMapper.handoff(order, first, job.getId()), released);
+            if(waiting) requireRows(bookingMapper.handoff(order, first, job.getId()), released);
+            else requireRows(bookingMapper.releaseResource(order,first),released);
             requireRows(bookingMapper.releaseUser(order, first), released);
         }
         int charged = order.getChargedSlots() - released;
@@ -128,7 +130,7 @@ public class BookingLifecycleServiceImpl implements BookingLifecycleService {
                 decisionTime);
         if (job != null)
             events.record(
-                    "RELEASE_REQUESTED",
+                    "PENDING".equals(job.getStatus())?"RELEASE_REQUESTED":"RELEASE_COMPLETED",
                     job.getJobNo(),
                     order.getUserId(),
                     json.createObjectNode()

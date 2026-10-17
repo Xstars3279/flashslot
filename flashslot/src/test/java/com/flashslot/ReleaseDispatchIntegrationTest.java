@@ -141,7 +141,10 @@ class ReleaseDispatchIntegrationTest {
     }
 
     @Test void concurrentConsumersAndNoCandidateReleaseAreIdempotent() throws Exception {
-        cancel(false); dispatch.scan(); String id=eventId(); var event=event(id);
+        cancel(true);
+        // 取消时有候补而保留交接，派发前候补自行取消，验证消费并发释放路径。
+        jdbc.update("UPDATE waitlist_record SET status='CANCELED' WHERE resource_id=?",device);
+        dispatch.scan(); String id=eventId(); var event=event(id);
         var pool=Executors.newFixedThreadPool(6);
         try {
             var calls=new ArrayList<Future<?>>();
@@ -161,7 +164,7 @@ class ReleaseDispatchIntegrationTest {
     }
 
     @Test void compensationDoesNotStarveTasksBehindAnAlreadyDispatchedBatch() throws Exception {
-        cancel(false);
+        cancel(true);
         var sources=new ArrayList<String>();
         for(int i=0;i<51;i++) {
             String source="BK_"+UUID.randomUUID(); sources.add(source);

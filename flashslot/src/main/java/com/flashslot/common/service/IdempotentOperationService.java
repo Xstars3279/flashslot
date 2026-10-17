@@ -40,6 +40,13 @@ public class IdempotentOperationService {
         var record = mapper.lockOperation(userId, operation, key);
         if (!MessageDigest.isEqual(hash, record.getPayloadHash()))
             throw new BusinessException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", "此请求键已用于其他参数");
+        // 兼容旧版本错误缓存：仅清除写业务前产生的“日历未就绪”503，先核对请求哈希。
+        if(Integer.valueOf(503).equals(record.getResultHttpStatus())
+                && "CALENDAR_NOT_READY".equals(record.getResultCode())
+                && ("CREATE_BOOKING".equals(operation) || "CREATE_WAITLIST".equals(operation))) {
+            mapper.clearCalendarFailure(userId,operation,key);
+            record.setResultHttpStatus(null); record.setResultCode(null); record.setResultJson(null);
+        }
         return record;
     }
 
@@ -62,7 +69,10 @@ public class IdempotentOperationService {
     }
 
     public void saveRejection(ApiIdempotency record, BusinessException error) {
-        save(record, error.getStatus().value(), error.getCode(), Result.error(error.getMessage()));
+        // 暂时性服务错误必须回滚本次事务，不能被 CommittedBusinessException 固化七天。
+        if(error.getStatus().is5xxServerError())
+            throw new BusinessException(error.getStatus(),error.getCode(),error.getMessage());
+        save(record, error.getStatus().value(), error.getCode(), Result.error(error.getCode(),error.getMessage()));
     }
 
     private void save(ApiIdempotency record, int status, String code, Object body) {

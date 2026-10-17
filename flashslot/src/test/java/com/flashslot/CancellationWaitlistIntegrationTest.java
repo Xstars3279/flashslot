@@ -125,6 +125,8 @@ class CancellationWaitlistIntegrationTest {
     @Test
     void cancelMovesFutureSlotsToHandoffAndReplaysWithoutDuplicateRelease() throws Exception {
         String order = booking(resource, 18, 22);
+        mvc.perform(interval("/api/v1/waitlists", candidate, "queued", resource, 18, 22))
+                .andExpect(status().isCreated());
         var first =
                 mvc.perform(cancel(owner, "cancel", order))
                         .andExpect(status().isOk())
@@ -187,6 +189,8 @@ class CancellationWaitlistIntegrationTest {
     @Test
     void cancellationAfterStartReleasesOnlyNotYetStartedSlots() throws Exception {
         String order = booking(resource, 18, 22);
+        mvc.perform(interval("/api/v1/waitlists", candidate, "suffix", resource, 19, 22))
+                .andExpect(status().isCreated());
         when(clock.instant()).thenReturn(Instant.parse("2026-10-16T01:00:00.001Z"));
         mvc.perform(cancel(owner, "partial", order))
                 .andExpect(status().isOk())
@@ -333,6 +337,9 @@ class CancellationWaitlistIntegrationTest {
     @Test
     void waitlistAcceptsHandoffAndRejectsRestrictedOrOverlappingUser() throws Exception {
         String order = booking(resource, 18, 22);
+        String queued="queued_"+UUID.randomUUID();
+        account(queued,"USER");
+        mvc.perform(interval("/api/v1/waitlists",queued,"queued",resource,18,22)).andExpect(status().isCreated());
         mvc.perform(interval("/api/v1/waitlists", owner, "own-overlap", resource, 18, 22))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("code").value(0))
@@ -586,11 +593,11 @@ class CancellationWaitlistIntegrationTest {
                 .andExpect(jsonPath("data.checkedInAt").value("2026-10-16T01:00:00Z"));
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT state FROM slot_occupation WHERE resource_id=? AND"
+                                "SELECT COUNT(*) FROM slot_occupation WHERE resource_id=? AND"
                                     + " slot_index=19",
-                                String.class,
+                                Integer.class,
                                 resource))
-                .isEqualTo("HANDOFF");
+                .isZero();
     }
 
     @Test

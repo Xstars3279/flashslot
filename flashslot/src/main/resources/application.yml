@@ -2,7 +2,7 @@ spring:
   application:
     name: flashslot
   profiles:
-    active: ${APP_PROFILE:local}
+    active: ${APP_PROFILE:production}
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/flashslot?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
     username: ${DB_USERNAME:flashslot}
@@ -88,8 +88,6 @@ app:
     hot-resource-ids: ${HOT_RESOURCE_IDS:}
   cache-lock:
     watchdog-timeout-ms: 30000
-  account-ban-cache:
-    enabled: ${ACCOUNT_BAN_CACHE_ENABLED:true}
   messaging:
     enabled: ${MESSAGING_ENABLED:true}
     scheduling-enabled: ${MESSAGING_SCHEDULING_ENABLED:true}

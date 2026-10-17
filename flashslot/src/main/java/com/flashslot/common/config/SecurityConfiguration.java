@@ -66,13 +66,13 @@ public class SecurityConfiguration {
                     response.setStatus(401);
                     response.setContentType("application/json;charset=UTF-8");
                     response.setHeader("WWW-Authenticate", "Bearer");
-                    json.writeValue(response.getOutputStream(), Result.error("请先登录"));
+                    json.writeValue(response.getOutputStream(), Result.error("UNAUTHENTICATED","请先登录"));
                 };
         AccessDeniedHandler forbidden =
                 (request, response, ex) -> {
                     response.setStatus(403);
                     response.setContentType("application/json;charset=UTF-8");
-                    json.writeValue(response.getOutputStream(), Result.error("无权执行此操作"));
+                    json.writeValue(response.getOutputStream(), Result.error("ACCESS_DENIED","无权执行此操作"));
                 };
         http.exceptionHandling(
                 errors ->

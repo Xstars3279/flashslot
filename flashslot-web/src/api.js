@@ -9,9 +9,12 @@ http.interceptors.request.use(config => {
   return config
 })
 http.interceptors.response.use(response => {
-  if (response.data.code !== 1) return Promise.reject(new Error(response.data.msg || '操作未完成'))
+  if (response.data.code !== 1) return Promise.reject(Object.assign(new Error(response.data.msg || '操作未完成'), {
+    errorCode: response.data.errorCode || 'REQUEST_FAILED', response, config: response.config,
+  }))
   return response.data.data
 }, error => {
+  error.errorCode = error.response?.data?.errorCode || 'REQUEST_FAILED'
   // 迟到的旧请求和密码登录失败不能注销之后建立的新会话。
   const authorization = axios.AxiosHeaders.from(error.config?.headers).get('Authorization')
   if (error.response?.status === 401 && session.token && authorization === `Bearer ${session.token}`) {

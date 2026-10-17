@@ -34,7 +34,6 @@ public class LoginServiceImpl implements LoginService {
     private final Clock clock;
     private final AccountPermissionMapper accounts;
     private final LoginRateLimiter limiter;
-    private final com.flashslot.auth.service.AccountBanCache bans;
 
     /** 密码认证成功后签发无状态 Token；不建立 Session，不记录明文密码或 Token。 */
     @Override
@@ -48,8 +47,6 @@ public class LoginServiceImpl implements LoginService {
                     limiter.tryAcquireAccount(
                             account == null ? null : account.getId(), request.getUsername());
             if (retryAfter > 0) throw new LoginRateLimitException(retryAfter);
-            if(account!=null && bans.isBlocked(account.getId(),account.getCredentialVersion()))
-                throw new BadCredentialsException("Invalid credentials");
             authenticated =
                     authenticationManager.authenticate(
                             UsernamePasswordAuthenticationToken.unauthenticated(

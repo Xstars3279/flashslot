@@ -562,7 +562,7 @@ COMMIT -> 返回订单与 releaseStatus
 | 修改开放日 | enabled、openStartSlot、openEndSlot、预期 revision | 新 revision；涉及有效订单返回冲突 |
 | 管理任务恢复 | reason、预期任务状态 | 当前任务状态和审计 id |
 
-Controller 和全局异常处理按苍穹外卖风格返回 `Result<T>`，包含 `code、msg、data`，不使用 ResponseEntity 或 Outcome。成功 code 为 1，失败 code 为 0，失败原因放在 msg、data 为 null；保留相应 HTTP 协议状态。设备修改的预期版本通过请求 DTO 的 version 字段传入，不使用 ETag/If-Match。请求 DTO 通过 `@RequestBody @Valid` 接收 JSON，查询 DTO 通过 `@ModelAttribute @Valid` 绑定 URL 参数。Actuator/OpenAPI 等框架端点保留标准协议格式。下文具名错误标识属于内部异常及幂等记录，不再作为对外 JSON code。
+Controller 和全局异常处理返回 `Result<T>`，包含 `code、msg、data、errorCode`，不使用 ResponseEntity 或 Outcome。成功 code 为 1，失败 code 为 0，失败原因放在 msg、data 为 null；具名业务错误标识通过 errorCode 返回，成功时 errorCode 为 null。保留相应 HTTP 协议状态。设备修改的预期版本通过请求 DTO 的 version 字段传入，不使用 ETag/If-Match。请求 DTO 通过 `@RequestBody @Valid` 接收 JSON，查询 DTO 通过 `@ModelAttribute @Valid` 绑定 URL 参数。Actuator/OpenAPI 等框架端点保留标准协议格式。
 
 分页的 data 返回 `items、nextCursor、hasMore`，默认 20 条；游标包含最后一条记录的稳定排序键，不能因中间插入导致重复或遗漏。订单按 `(created_at DESC,id DESC)` 排序，数据库索引按实际查询补齐；时间统一毫秒精度。
 

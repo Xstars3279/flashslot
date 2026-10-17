@@ -56,6 +56,8 @@ public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
         requireOwnership(job);
         int proposed = firstFuture(job, beforeUserLock);
         String mode = mode(resource, day, job, proposed, beforeUserLock);
+        // 暂停不创建新订单，也不拒绝已有候补；恢复后继续，超过截止仍按原逻辑过期清理。
+        if(resource!=null && "PAUSED".equals(resource.getStatus()) && "NORMAL".equals(mode)) return true;
         int maxStart =
                 "CLOSED".equals(mode)
                         ? job.getEndSlot() - 1

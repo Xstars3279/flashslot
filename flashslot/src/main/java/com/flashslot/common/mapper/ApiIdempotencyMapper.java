@@ -37,6 +37,13 @@ public interface ApiIdempotencyMapper {
             @Param("operation") String operation,
             @Param("key") String key);
 
+    @Update("""
+        UPDATE api_idempotency SET result_http_status=NULL,result_code=NULL,result_json=NULL
+        WHERE user_id=#{userId} AND operation=#{operation} AND request_key=#{key}
+          AND result_http_status=503 AND result_code='CALENDAR_NOT_READY'
+        """)
+    int clearCalendarFailure(@Param("userId") long userId,@Param("operation") String operation,@Param("key") String key);
+
     @Update(
             """
 UPDATE api_idempotency SET result_http_status=#{status},result_code=#{code},result_json=#{json}

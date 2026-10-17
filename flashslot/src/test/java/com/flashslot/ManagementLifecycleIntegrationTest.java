@@ -158,6 +158,12 @@ class ManagementLifecycleIntegrationTest {
         when(clock.instant()).thenReturn(Instant.parse("2026-10-17T01:15:00Z"));
         adminToken=login(admin,PASSWORD); userToken=login(name,PASSWORD);
         changeStatus(active,"RETIRED",0,409);
+        String queued="retire_queue_"+UUID.randomUUID();
+        jdbc.update("INSERT INTO app_user(username,password_hash,role) VALUES (?,'fixture','USER')",queued);
+        jdbc.update("""
+            INSERT INTO waitlist_record(waitlist_no,user_id,resource_id,book_date,start_slot,end_slot,purpose,expire_at)
+            SELECT ?,id,?,'2026-10-17',19,20,'STUDY','2026-10-17 01:20:00' FROM app_user WHERE username=?
+            ""","WL_"+UUID.randomUUID(),active,queued);
         mvc.perform(write(post("/api/v1/bookings/"+order+"/cancel"),userToken,Map.of()).header("Idempotency-Key","finish"))
             .andExpect(status().isOk());
         changeStatus(active,"RETIRED",0,409);

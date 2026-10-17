@@ -13,13 +13,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class TokenStateService {
     private final TokenStateMapper mapper;
-    private final AccountBanCache bans;
 
     public boolean valid(Jwt token) {
         Number uid=token.getClaim("userId");
         Object claim=token.getClaim("credentialVersion");
         if(uid==null || !(claim instanceof Number version)) return false;
-        if(bans.isBlocked(uid.longValue(),version.longValue())) return false;
         Long current=mapper.version(uid.longValue());
         return current!=null && current==version.longValue() && !mapper.revoked(hash(token.getTokenValue()));
     }

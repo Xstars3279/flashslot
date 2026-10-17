@@ -42,7 +42,7 @@ assert.equal(cancel.body.data.status, 'CANCELED')
 const replay = await request(`/bookings/${order}/cancel`, 'POST', {}, tokens[winner.account], cancelKey)
 assert.deepEqual(replay.body, cancel.body)
 const schedule = await request(`/resources/${resourceId}/schedule?date=${date}`)
-assert.equal(schedule.body.data.slots[26].state, 'HANDOFF')
+assert.equal(schedule.body.data.slots[26].state, 'FREE')
 assert.equal(schedule.body.data.slots[26].orderNo, null)
 let notified = false
 for (let i = 0; i < 16; i++) {

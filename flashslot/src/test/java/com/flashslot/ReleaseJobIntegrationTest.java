@@ -226,10 +226,14 @@ class ReleaseJobIntegrationTest {
     }
 
     @Test
-    void pausedDeviceAllowsExistingCandidateButClosedCalendarRejectsIt() throws Exception {
+    void pausedDeviceRetainsCandidateAndResumesOnlyAfterActivation() throws Exception {
         String a = waitlist(first, 18, 22);
         cancel();
         jdbc.update("UPDATE resource SET status='PAUSED' WHERE id=?", resource);
+        processor().process(jobId);
+        assertThat(waitlistStatus(a)).isEqualTo("WAITING");
+        assertThat(jobStatus()).isEqualTo("PENDING");
+        jdbc.update("UPDATE resource SET status='ACTIVE' WHERE id=?", resource);
         processor().process(jobId);
         assertThat(waitlistStatus(a)).isEqualTo("MATCHED");
     }

@@ -691,6 +691,11 @@ SELECT ?,?,? ,book_date,start_slot,end_slot,end_slot-start_slot,'CONFIRMED',purp
 
     @Test
     void matchingLockConflictPersistsFailureAndRetriesAtNextHalfHour() throws Exception {
+        // 只有存在可承接后缀的候补时取消才创建 PENDING 交接；无人排队已改为当场释放。
+        jdbc.update("""
+            INSERT INTO waitlist_record(waitlist_no,user_id,resource_id,book_date,start_slot,end_slot,purpose,expire_at)
+            SELECT ?,id,?,'2026-10-16',19,22,'STUDY','2026-10-16 01:20:00' FROM app_user WHERE username=?
+            ""","WL_"+UUID.randomUUID(),resource,other);
         mvc.perform(retryCancellationRequest()).andExpect(status().isOk());
         long job =
                 jdbc.queryForObject(

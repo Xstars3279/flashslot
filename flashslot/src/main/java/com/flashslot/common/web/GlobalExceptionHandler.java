@@ -25,20 +25,20 @@ public class GlobalExceptionHandler {
     public Result<Void> limited(LoginRateLimitException ex, HttpServletResponse response) {
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader("Retry-After", Long.toString(ex.getRetryAfter()));
-        return Result.error(ex.getMessage());
+        return Result.error(ex.getCode(),ex.getMessage());
     }
 
     /** 事务代理已完成回滚；前端使用原幂等键重新提交，不能把锁冲突视为成功。 */
     @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     public Result<Void> busy(org.springframework.dao.PessimisticLockingFailureException ex) {
-        return Result.error("操作繁忙，请使用原请求键重试");
+        return Result.error("OPERATION_BUSY","操作繁忙，请使用原请求键重试");
     }
 
     @ExceptionHandler(BusinessException.class)
     public Result<Void> business(BusinessException ex, HttpServletResponse response) {
         response.setStatus(ex.getStatus().value());
-        return Result.error(ex.getMessage());
+        return Result.error(ex.getCode(),ex.getMessage());
     }
 
     @ExceptionHandler({
@@ -51,7 +51,7 @@ public class GlobalExceptionHandler {
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> invalid(Exception ex) {
-        return Result.error("请求参数不合法，请检查字段、格式和范围");
+        return Result.error("INVALID_ARGUMENT","请求参数不合法，请检查字段、格式和范围");
     }
 
     @ExceptionHandler(Exception.class)
@@ -60,10 +60,10 @@ public class GlobalExceptionHandler {
         if (ex instanceof ErrorResponse error && error.getStatusCode().is4xxClientError()) {
             int status = error.getStatusCode().value();
             response.setStatus(status);
-            return Result.error("请求地址、方法或内容格式不受支持");
+            return Result.error("HTTP_"+status,"请求地址、方法或内容格式不受支持");
         }
         log.error("处理请求时发生未预期异常", ex);
         response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-        return Result.error("服务暂时不可用，请稍后重试");
+        return Result.error("INTERNAL_ERROR","服务暂时不可用，请稍后重试");
     }
 }

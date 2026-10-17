@@ -49,6 +49,21 @@ DELETE FROM user_slot_occupation WHERE user_id=#{order.userId} AND book_date=#{o
 """)
     int releaseUser(@Param("order") BookingOrder order, @Param("first") int first);
 
+    /** 调用方已持有日历锁；候补准入和取消也按该锁串行，不会漏掉并发入队。 */
+    @Select("""
+        SELECT EXISTS(SELECT 1 FROM waitlist_record
+          WHERE resource_id=#{order.resourceId} AND book_date=#{order.bookDate}
+            AND status='WAITING' AND expire_at>#{now} AND end_slot=#{order.endSlot}
+            AND start_slot BETWEEN #{first} AND #{order.endSlot}-1)
+        """)
+    boolean hasReleaseCandidate(@Param("order") BookingOrder order,@Param("first") int first,@Param("now") Instant now);
+
+    @Delete("""
+        DELETE FROM slot_occupation WHERE resource_id=#{order.resourceId} AND book_date=#{order.bookDate}
+          AND slot_index>=#{first} AND slot_index<#{order.endSlot} AND state='BOOKED' AND booking_id=#{order.id}
+        """)
+    int releaseResource(@Param("order") BookingOrder order,@Param("first") int first);
+
     @Update(
             "UPDATE app_user SET credit_score=#{score},restriction_until=#{restriction} WHERE"
                     + " id=#{id}")

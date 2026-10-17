@@ -9,6 +9,8 @@ import java.io.Serializable;
 public class Result<T> implements Serializable {
     private Integer code;
     private String msg;
+    /** 稳定的机器可读错误码；成功响应为 null，code 仍保持 1/0 兼容。 */
+    private String errorCode;
     private T data;
 
     public static <T> Result<T> success(T data) {
@@ -23,9 +25,14 @@ public class Result<T> implements Serializable {
     }
 
     public static <T> Result<T> error(String msg) {
+        return error("REQUEST_FAILED",msg);
+    }
+
+    public static <T> Result<T> error(String errorCode,String msg) {
         Result<T> result = new Result<>();
         result.code = 0;
         result.msg = msg;
+        result.errorCode = errorCode;
         return result;
     }
 }

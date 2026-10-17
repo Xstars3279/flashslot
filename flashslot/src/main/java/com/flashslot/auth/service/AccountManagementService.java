@@ -24,7 +24,6 @@ public class AccountManagementService {
     private final CurrentAdmin admin;
     private final PasswordEncoder passwords;
     private final AdminAuditService audit;
-    private final AccountBanCache bans;
 
     @Transactional(readOnly=true)
     public RecoveryPage<ManagedAccountView> list(long cursor,int limit,String username) {
@@ -72,12 +71,9 @@ public class AccountManagementService {
         if(target==BaseContext.getCurrentId() && !request.enabled())
             throw failure(HttpStatus.CONFLICT,"不能停用当前登录的管理员账号");
         if(!request.enabled().equals(user.getEnabled())) {
-            // The account locks are already held; read the version under the same transaction.
-            long nextVersion=accounts.lockCredentials(target).getCredentialVersion()+1;
             accounts.update(null,new UpdateWrapper<AppUser>().eq("id",target).set("enabled",request.enabled())
                 .setSql("credential_version=credential_version+1"));
             user.setEnabled(request.enabled());
-            bans.synchronizeAfterCommit(target,nextVersion,request.enabled());
             audit.recordTarget(BaseContext.getCurrentId(),"ACCOUNT_STATUS",Long.toString(target),request.reason().strip());
         }
         return ManagedAccountView.from(user);
