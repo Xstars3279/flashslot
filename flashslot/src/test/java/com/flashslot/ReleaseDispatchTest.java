@@ -12,15 +12,30 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ReleaseDispatchTest {
-    @Test void boundaryPreventsAnEarlyCompensationScanFromMatchingNewCancellations() {
+    @Test void compensationSkipsJobsWithInFlightOrRecentDispatch() {
         var work=mock(ReleaseWorkMapper.class);
         var events=mock(com.flashslot.messaging.mapper.OutboxEventMapper.class);
-        var clock=Clock.fixed(Instant.parse("2026-10-15T02:01:00Z"),ZoneOffset.UTC);
-        var boundary=Instant.parse("2026-10-15T02:00:00Z");
-        when(work.findDispatchable(boundary)).thenReturn(List.of());
+        var now=Instant.parse("2026-10-15T02:01:30Z");
+        var clock=Clock.fixed(now,ZoneOffset.UTC);
+        when(work.findDispatchable(now,now.minus(ReleaseDispatchService.REDISPATCH_AFTER))).thenReturn(List.of());
         assertThat(new ReleaseDispatchService(work,events,new ObjectMapper(),clock).scan()).isZero();
-        verify(work).findDispatchable(boundary);
+        verify(work).findDispatchable(now,Instant.parse("2026-10-15T01:59:30Z"));
         verifyNoInteractions(events);
+    }
+
+    @Test void dispatchUsesOneEventIdPerJobAndMinute() {
+        var events=mock(com.flashslot.messaging.mapper.OutboxEventMapper.class);
+        var captor=org.mockito.ArgumentCaptor.forClass(com.flashslot.messaging.entity.OutboxEvent.class);
+        when(events.insertReleaseDispatch(captor.capture())).thenReturn(1);
+        var service=new ReleaseDispatchService(mock(ReleaseWorkMapper.class),events,new ObjectMapper(),Clock.systemUTC());
+        service.dispatch(42,Instant.parse("2026-10-15T02:01:05Z"));
+        service.dispatch(42,Instant.parse("2026-10-15T02:01:59Z"));
+        service.dispatch(42,Instant.parse("2026-10-15T02:02:00Z"));
+        var ids=captor.getAllValues().stream().map(com.flashslot.messaging.entity.OutboxEvent::getEventId).toList();
+        assertThat(ids.get(0)).isEqualTo(ids.get(1));
+        assertThat(ids.get(2)).isNotEqualTo(ids.get(0));
+        assertThat(captor.getValue().getAggregateId()).isEqualTo("42");
+        assertThat(captor.getValue().getEventType()).isEqualTo(PublishedEvent.RELEASE);
     }
 
     @Test void dispatchEnvelopeCannotBeMistakenForANotificationOrAnotherJob() {

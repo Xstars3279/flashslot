@@ -14,6 +14,7 @@ import com.flashslot.operations.vo.*;
 import com.flashslot.resource.mapper.*;
 import com.flashslot.waitlist.entity.ReleaseJob;
 import com.flashslot.waitlist.mapper.*;
+import com.flashslot.waitlist.service.ReleaseDispatchService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -35,6 +36,7 @@ public class ReleaseRecoveryServiceImpl implements ReleaseRecoveryService {
     @Autowired private AdminAuditService audit;
     @Autowired private ScheduleEventService events;
     @Autowired private Clock clock;
+    @Autowired private ReleaseDispatchService dispatch;
 
     @Override
     @Transactional(readOnly = true)
@@ -76,6 +78,7 @@ public class ReleaseRecoveryServiceImpl implements ReleaseRecoveryService {
         if (operation.getResultHttpStatus() != null)
             return operations.replay(operation, RecoveryActionView.class);
         verify(job);
+        var now = clock.instant();
         if (jobs.update(
                         null,
                         new UpdateWrapper<ReleaseJob>()
@@ -84,8 +87,10 @@ public class ReleaseRecoveryServiceImpl implements ReleaseRecoveryService {
                                 .set("status", "PENDING")
                                 .set("attempts", 0)
                                 .set("last_error", null)
-                                .set("next_run_at", clock.instant()))
+                                .set("next_run_at", now))
                 != 1) throw new IllegalStateException("任务重试更新失败");
+        // 与状态重置同事务写入派发指令，提交后立即重新撮合；同一分钟已有指令时由补偿扫描补派。
+        dispatch.dispatch(job.getId(), now);
         audit.recordTarget(actor, "RELEASE_RETRY", jobNo, reason);
         var result = new RecoveryActionView(jobNo, "PENDING");
         operations.saveSuccess(operation, 200, result);

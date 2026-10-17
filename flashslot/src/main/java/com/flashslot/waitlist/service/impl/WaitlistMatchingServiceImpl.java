@@ -25,6 +25,12 @@ import java.util.stream.IntStream;
 /** 每个候选独立事务；扫描预算不意味着可以跳过未处理队列直接释放库存。 */
 @Service
 public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
+    /** 设备暂停期间的复查间隔，避免补偿扫描每两分钟重复派发。 */
+    private static final Duration PAUSED_RECHECK = Duration.ofMinutes(5);
+    /** 第 1–4 次失败的退避；第 5 次进入人工检查。 */
+    private static final Duration[] FAILURE_BACKOFF = {
+        Duration.ofMinutes(1), Duration.ofMinutes(5), Duration.ofMinutes(15), Duration.ofMinutes(30)
+    };
     @Autowired private ReleaseWorkMapper workMapper;
     @Autowired private ResourceMapper resourceMapper;
     @Autowired private ResourceDayMapper dayMapper;
@@ -56,8 +62,12 @@ public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
         requireOwnership(job);
         int proposed = firstFuture(job, beforeUserLock);
         String mode = mode(resource, day, job, proposed, beforeUserLock);
-        // 暂停不创建新订单，也不拒绝已有候补；恢复后继续，超过截止仍按原逻辑过期清理。
-        if(resource!=null && "PAUSED".equals(resource.getStatus()) && "NORMAL".equals(mode)) return true;
+        // 暂停不创建新订单，也不拒绝已有候补；推迟复查时间，恢复后由补偿扫描继续，超过截止仍按原逻辑过期清理。
+        if(resource!=null && "PAUSED".equals(resource.getStatus()) && "NORMAL".equals(mode)) {
+            job.setNextRunAt(beforeUserLock.plus(PAUSED_RECHECK));
+            requireRows(workMapper.save(job), 1);
+            return true;
+        }
         int maxStart =
                 "CLOSED".equals(mode)
                         ? job.getEndSlot() - 1
@@ -271,8 +281,7 @@ public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
                 || error instanceof DataIntegrityViolationException
                 || attempts >= 5) job.setStatus("MANUAL_REVIEW");
         job.setLastError(error.getClass().getSimpleName());
-        long next = (Math.floorDiv(failureTime.getEpochSecond(), 1800) + 1) * 1800;
-        job.setNextRunAt(Instant.ofEpochSecond(next));
+        job.setNextRunAt(failureTime.plus(FAILURE_BACKOFF[Math.min(attempts, FAILURE_BACKOFF.length) - 1]));
         requireRows(workMapper.save(job), 1);
     }
 

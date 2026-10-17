@@ -101,7 +101,7 @@ app:
     scan-delay-ms: 5000
   release:
     scheduling-enabled: ${RELEASE_SCHEDULING_ENABLED:true}
-    scan-cron: "0 */30 * * * *"
+    compensation-delay-ms: 60000
   jwt:
     secret: ${JWT_SECRET:}
     ttl-seconds: ${JWT_TTL_SECONDS:7200}

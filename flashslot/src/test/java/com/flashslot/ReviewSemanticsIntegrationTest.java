@@ -122,7 +122,10 @@ class ReviewSemanticsIntegrationTest {
         releases.process(job);
         assertThat(jdbc.queryForObject("SELECT status FROM waitlist_record WHERE resource_id=?",String.class,resource)).isEqualTo("WAITING");
         assertThat(jdbc.queryForObject("SELECT status FROM release_job WHERE id=?",String.class,job)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT next_run_at FROM release_job WHERE id=?",java.sql.Timestamp.class,job).toInstant())
+            .isEqualTo(Instant.parse("2026-10-15T00:06:00Z"));
         jdbc.update("UPDATE resource SET status='ACTIVE' WHERE id=?",resource);
+        when(clock.instant()).thenReturn(Instant.parse("2026-10-15T00:06:00Z"));
         releases.process(job);
         assertThat(jdbc.queryForObject("SELECT status FROM waitlist_record WHERE resource_id=?",String.class,resource)).isEqualTo("MATCHED");
     }

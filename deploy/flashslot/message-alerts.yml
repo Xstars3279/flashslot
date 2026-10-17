@@ -20,11 +20,11 @@ groups:
         annotations:
           summary: 存在发布失败或消费失败消息，请到异常处理页核查
       - alert: FlashSlotReleaseStalled
-        expr: flashslot_message_release_oldest_age_seconds{job="flashslot"} > 2700
+        expr: flashslot_message_release_oldest_age_seconds{job="flashslot"} > 600
         for: 2m
         labels: {severity: warning}
         annotations:
-          summary: 撮合任务逾期超过45分钟，请核查消费者、Broker或设备暂停状态
+          summary: 撮合任务逾期超过10分钟，请核查消费者、Broker或设备暂停状态
       - alert: FlashSlotManualReview
         expr: flashslot_message_release_jobs{job="flashslot",status="manual_review"} > 0
         for: 1m

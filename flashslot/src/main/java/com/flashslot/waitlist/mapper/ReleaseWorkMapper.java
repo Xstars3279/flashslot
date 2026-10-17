@@ -11,15 +11,15 @@ import java.util.List;
 /** 扫描不加业务锁；执行时按资源、日历、任务、候补、用户的统一顺序重新读取。 */
 @Mapper
 public interface ReleaseWorkMapper {
-    /** 排除本轮已派发的任务，避免 LIMIT 50 被队头任务占满；补偿也遵守半小时边界。 */
+    /** 排除仍在途或近期已派发的任务，避免 LIMIT 50 被队头任务占满，也不在 broker 故障时堆积指令。 */
     @Select("""
         SELECT j.id FROM release_job j
-        WHERE j.status='PENDING' AND j.next_run_at<=#{boundary}
+        WHERE j.status='PENDING' AND j.next_run_at<=#{now}
         AND NOT EXISTS (SELECT 1 FROM outbox_event e WHERE e.event_type='RELEASE_DISPATCHED'
-          AND e.aggregate_id=CAST(j.id AS CHAR) AND e.created_at>=#{boundary})
+          AND e.aggregate_id=CAST(j.id AS CHAR) AND (e.status IN ('NEW','SENDING') OR e.created_at>=#{recent}))
         ORDER BY j.next_run_at,j.id LIMIT 50
         """)
-    List<Long> findDispatchable(Instant boundary);
+    List<Long> findDispatchable(@Param("now") Instant now,@Param("recent") Instant recent);
 
     @Select(
             "SELECT id FROM release_job WHERE status='PENDING' AND next_run_at<=#{now} ORDER BY"

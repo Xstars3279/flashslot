@@ -9,12 +9,11 @@ import com.flashslot.waitlist.service.ReleaseDispatchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
-import org.springframework.scheduling.config.CronTask;
-import org.springframework.scheduling.support.CronExpression;
+import org.springframework.scheduling.config.FixedDelayTask;
 
-import java.time.*;
+import java.time.Duration;
 
-/** 验证真实注册的定时任务触发规则，不等待半小时，也不连接数据库。 */
+/** 验证真实注册的补偿任务，不连接数据库。撮合本身在任务创建时立即派发。 */
 class ReleaseSchedulingTest {
     private final ApplicationContextRunner runner =
             new ApplicationContextRunner()
@@ -22,35 +21,17 @@ class ReleaseSchedulingTest {
                     .withBean(ReleaseDispatchService.class, () -> mock(ReleaseDispatchService.class));
 
     @Test
-    void registeredTaskRunsAtEveryHalfHour() {
+    void onlyCompensationRunsEveryMinute() {
         runner.run(
                 context -> {
                     var tasks =
                             context.getBean(ScheduledAnnotationBeanPostProcessor.class)
                                     .getScheduledTasks();
-                    assertThat(tasks).hasSize(2);
-                    var task = tasks.stream().map(t -> t.getTask()).filter(t -> t instanceof CronTask).findFirst().orElseThrow();
-                    assertThat(task).isInstanceOf(CronTask.class);
-                    var cron = CronExpression.parse(((CronTask) task).getExpression());
-                    var first =
-                            cron.next(
-                                    ZonedDateTime.of(
-                                            2026, 10, 15, 10, 1, 0, 0, ZoneId.of("Asia/Shanghai")));
-                    assertThat(first)
-                            .isEqualTo(
-                                    ZonedDateTime.of(
-                                            2026,
-                                            10,
-                                            15,
-                                            10,
-                                            30,
-                                            0,
-                                            0,
-                                            ZoneId.of("Asia/Shanghai")));
-                    assertThat(cron.next(first))
-                            .isEqualTo(
-                                    ZonedDateTime.of(
-                                            2026, 10, 15, 11, 0, 0, 0, ZoneId.of("Asia/Shanghai")));
+                    assertThat(tasks).hasSize(1);
+                    var task = tasks.iterator().next().getTask();
+                    assertThat(task).isInstanceOf(FixedDelayTask.class);
+                    assertThat(((FixedDelayTask) task).getIntervalDuration())
+                            .isEqualTo(Duration.ofMinutes(1));
                 });
     }
 

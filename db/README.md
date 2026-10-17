@@ -14,7 +14,7 @@
 
 08_registration_phone.sql / V8 为 app_user 增加可空 phone 字段、手机号格式与唯一约束。旧账号保持为空；手机号注册固定创建 USER，手机号同时作为用户名。验证码保存在Redis，不增加数据库验证码表。
 
-09_release_dispatch_index.sql / V9 为 outbox_event 增加 (event_type,aggregate_id,created_at) 索引，用于半小时撮合指令查重与补偿，仍为16张表。指令复用Outbox和Inbox，不需要新的派发表。
+09_release_dispatch_index.sql / V9 为 outbox_event 增加 (event_type,aggregate_id,created_at) 索引，用于撮合指令查重与补偿，仍为16张表。指令复用Outbox和Inbox，不需要新的派发表。
 
 10_message_governance.sql / V10 增加 ARCHIVED 状态、状态/时间清理索引与死信来源/失败上下文字段，将已登记且不投递的历史 NEW 归档；不新增表。既有数据库由 Flyway 升级。
 

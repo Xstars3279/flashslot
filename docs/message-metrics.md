@@ -22,7 +22,7 @@ Counter 和 Timer 从进程启动后累计；服务重启会重置。发布 fail
 
 建议同时告警快照不可用、FAILED/死信/人工复核持续存在，以及积压年龄持续超过业务允许延迟。只有 snapshot_available 为 1 时才解释业务数量；不要将 NaN 替换为 0。发布失败率宜使用 `rate(...{result="failed"}[5m])` 除以 published+failed 的 rate；skipped 不进入失败率分母。消费失败率表示处理尝试失败率，不能解释成独立消息丢失率。
 
-release 逾期年龄可发现 Outbox 已 PUBLISHED、消费者却未完成任务的停摆。建议规则为超过 45 分钟并持续 2 分钟；这也可能源于业务暂停，需要结合消费者运行状态与任务情况核查，不能直接推定消息丢失。
+release 逾期年龄可发现 Outbox 已 PUBLISHED、消费者却未完成任务的停摆。撮合已改为取消即派发，建议规则为超过 10 分钟并持续 2 分钟；这也可能源于业务暂停，需要结合消费者运行状态与任务情况核查，不能直接推定消息丢失。
 
 验证：`MessageProcessingMetricsTest` 通过真实服务调用检查结果、重试计数、事务回滚与 Timer；`MessageMetricsSnapshotTest` 检查缓存共享、年龄、数据库故障 NaN；私有临时 MySQL 环境的 `MessageMetricsIntegrationTest` 执行真实聚合 SQL，验证支持类型过滤、历史归档分离与 UTC 时间映射。
 

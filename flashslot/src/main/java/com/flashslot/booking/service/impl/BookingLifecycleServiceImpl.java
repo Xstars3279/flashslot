@@ -13,6 +13,7 @@ import com.flashslot.resource.mapper.ResourceDayMapper;
 import com.flashslot.resource.mapper.ResourceMapper;
 import com.flashslot.waitlist.entity.ReleaseJob;
 import com.flashslot.waitlist.mapper.ReleaseJobMapper;
+import com.flashslot.waitlist.service.ReleaseDispatchService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ public class BookingLifecycleServiceImpl implements BookingLifecycleService {
     @Autowired private BookingReadMapper reads;
     @Autowired private ResourceDayMapper dayMapper;
     @Autowired private ReleaseJobMapper jobMapper;
+    @Autowired private ReleaseDispatchService releaseDispatch;
     @Autowired private CreditLedgerMapper creditMapper;
     @Autowired private BusinessEventService events;
     @Autowired private ScheduleEventService scheduleEvents;
@@ -96,7 +98,11 @@ public class BookingLifecycleServiceImpl implements BookingLifecycleService {
             job.setAttempts(0);
             job.setNextRunAt(decisionTime);
             requireRows(jobMapper.insert(job), 1);
-            if(waiting) requireRows(bookingMapper.handoff(order, first, job.getId()), released);
+            if(waiting) {
+                requireRows(bookingMapper.handoff(order, first, job.getId()), released);
+                // 派发指令与任务同事务提交，撮合秒级开始；MQ 不可用时由补偿扫描重新派发。
+                requireRows(releaseDispatch.dispatch(job.getId(), decisionTime), 1);
+            }
             else requireRows(bookingMapper.releaseResource(order,first),released);
             requireRows(bookingMapper.releaseUser(order, first), released);
         }

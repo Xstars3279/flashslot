@@ -12,7 +12,7 @@
 | --- | --- |
 | 普通用户 | 手机号注册与密码登录、设备排期、连续时段预约、加入/取消候补、取消/提前结束预约、签到、站内通知、个人信用与限制查询、修改密码 |
 | 管理员 | 账号启停与密码重置、设备及单日日历维护、设备暂停/恢复/退役、现场签到码、异常释放任务与消息恢复、信用调整、操作审计 |
-| 后台任务 | 提前维护 14 天设备日历、订单到期结算、候补过期处理、整点/半点派发撮合、漏派补偿、消息重试、有限期历史清理 |
+| 后台任务 | 提前维护 14 天设备日历、订单到期结算、候补过期处理、取消即派发撮合、漏派补偿、消息重试、有限期历史清理 |
 
 预约以 **30 分钟**为一格，开放今天起 **7 天**的申请窗口；单次最多 4 小时，同一用户每天跨设备合计最多 4 小时，不能跨设备预约重叠时段。取消时没有有效候补便直接释放；有候补才进入 HANDOFF。暂停设备保留候补，但暂停期间不转正。
 
@@ -24,7 +24,7 @@
 | Spring Security / BCrypt / JWT | 密码认证、角色授权、凭据版本检查和持久化 Token 撤销；停用/改密立即影响旧 Token | [认证模块](flashslot/src/main/java/com/flashslot/auth) |
 | Redis / Lua | 登录共享限流；模拟验证码的冷却、TTL、次数控制；带 revision 的公开排期缓存 | [登录限流](flashslot/src/main/java/com/flashslot/auth/service/LoginRateLimiter.java)、[验证码](flashslot/src/main/java/com/flashslot/auth/service/RegistrationCodeService.java)、[排期缓存](flashslot/src/main/java/com/flashslot/resource/service/impl/ScheduleCacheServiceImpl.java) |
 | Redisson | 排期缓存重建时合并热点竞争；数据库仍负责最终业务一致性 | [排期缓存实现](flashslot/src/main/java/com/flashslot/resource/service/impl/ScheduleCacheServiceImpl.java) |
-| RabbitMQ / Outbox / Inbox | 站内通知、候补撮合指令；业务事件同事务落库，发布确认、消费防重、失败落库和管理员恢复 | [消息模块](flashslot/src/main/java/com/flashslot/messaging)、[恢复模块](flashslot/src/main/java/com/flashslot/operations) |
+| RabbitMQ / Outbox / Inbox | 站内通知、候补撮合指令（取消即触发、数据库补偿兜底）；业务事件同事务落库，发布确认、消费防重、失败落库和管理员恢复 | [消息模块](flashslot/src/main/java/com/flashslot/messaging)、[恢复模块](flashslot/src/main/java/com/flashslot/operations) |
 | Flyway | V1–V10 增量迁移与启动校验，当前共 16 张表 | [迁移目录](flashslot/src/main/resources/db/migration) |
 | Micrometer / Prometheus | 发布/消费结果及耗时、积压、死信与撮合逾期指标；提供可选抓取与告警规则 | [指标说明](docs/message-metrics.md)、[监控配置](deploy/flashslot/prometheus.yml) |
 | Vue 3 / Element Plus / Axios | 用户与管理端按角色导航、幂等键复用、查询乱序隔离、跨上海午夜更新排期日期 | [前端目录](flashslot-web/src) |

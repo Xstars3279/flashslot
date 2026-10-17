@@ -234,6 +234,10 @@ class ReleaseJobIntegrationTest {
         assertThat(waitlistStatus(a)).isEqualTo("WAITING");
         assertThat(jobStatus()).isEqualTo("PENDING");
         jdbc.update("UPDATE resource SET status='ACTIVE' WHERE id=?", resource);
+        // 暂停时推迟 5 分钟复查，未到复查时间前不重复处理。
+        processor().process(jobId);
+        assertThat(waitlistStatus(a)).isEqualTo("WAITING");
+        when(clock.instant()).thenReturn(now.plusSeconds(300));
         processor().process(jobId);
         assertThat(waitlistStatus(a)).isEqualTo("MATCHED");
     }
@@ -282,7 +286,7 @@ class ReleaseJobIntegrationTest {
     }
 
     @Test
-    void eventFailureRollsBackPromotionAndPersistsRetryForNextHalfHour() throws Exception {
+    void eventFailureRollsBackPromotionAndRetriesAfterShortBackoff() throws Exception {
         String a = waitlist(first, 18, 22);
         cancel();
         doThrow(new IllegalStateException("private injected error"))
@@ -305,9 +309,12 @@ class ReleaseJobIntegrationTest {
                                         java.sql.Timestamp.class,
                                         jobId)
                                 .toInstant())
-                .isEqualTo(now.plusSeconds(1800));
+                .isEqualTo(now.plusSeconds(60));
         reset(events);
-        when(clock.instant()).thenReturn(now.plusSeconds(1800));
+        when(clock.instant()).thenReturn(now.plusSeconds(30));
+        processor().scanDueJobs();
+        assertThat(jobStatus()).isEqualTo("PENDING");
+        when(clock.instant()).thenReturn(now.plusSeconds(60));
         processor().scanDueJobs();
         assertThat(waitlistStatus(a)).isEqualTo("MATCHED");
         assertThat(jobStatus()).isEqualTo("MATCHED");
@@ -323,6 +330,18 @@ class ReleaseJobIntegrationTest {
         assertThat(jobStatus()).isEqualTo("MANUAL_REVIEW");
         assertThat(count("booking_order", "release_job_id", jobId)).isZero();
         assertThat(count("slot_occupation", "resource_id", resource)).isEqualTo(3);
+    }
+
+    @Test
+    void cancellationWithCandidateDispatchesInSameTransaction() throws Exception {
+        waitlist(first, 18, 22);
+        cancel();
+        assertThat(
+                        jdbc.queryForList(
+                                "SELECT status FROM outbox_event WHERE event_type='RELEASE_DISPATCHED' AND aggregate_id=?",
+                                String.class,
+                                Long.toString(jobId)))
+                .containsExactly("NEW");
     }
 
     @Test

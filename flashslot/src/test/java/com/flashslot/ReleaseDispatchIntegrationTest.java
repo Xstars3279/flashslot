@@ -100,11 +100,10 @@ class ReleaseDispatchIntegrationTest {
             .andExpect(status().is(expected));
     }
 
-    @Test void producerPreservesHalfHourAndConcurrentScansCreateOneEvent() throws Exception {
+    @Test void cancellationDispatchesImmediatelyAndConcurrentScansCreateNoDuplicate() throws Exception {
         when(clock.instant()).thenReturn(now.plusSeconds(60));
         cancel(true);
-        dispatch.scan();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event WHERE event_type='RELEASE_DISPATCHED' AND aggregate_id=?",Integer.class,Long.toString(job))).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event WHERE event_type='RELEASE_DISPATCHED' AND aggregate_id=?",Integer.class,Long.toString(job))).isEqualTo(1);
         when(clock.instant()).thenReturn(now.plusSeconds(1800));
         var pool=Executors.newFixedThreadPool(4);
         try {
