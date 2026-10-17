@@ -96,7 +96,7 @@ class FoundationIntegrationTest {
 
     @Test
     void migrationsAreRepeatableAndHttpFoundationStarts() throws Exception {
-        assertThat(flyway.info().applied()).hasSize(5);
+        assertThat(flyway.info().applied()).hasSize(9);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
@@ -106,7 +106,7 @@ class FoundationIntegrationTest {
                                     + " table_schema=DATABASE() AND table_name <>"
                                     + " 'flyway_schema_history'")) {
             rows.next();
-            assertThat(rows.getInt(1)).isEqualTo(14);
+            assertThat(rows.getInt(1)).isEqualTo(16);
             assertThat(connection.getTransactionIsolation())
                     .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
         }

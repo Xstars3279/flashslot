@@ -193,10 +193,9 @@ class BookingQueryIntegrationTest {
         jdbc.update("UPDATE app_user SET role='USER' WHERE id=?", adminId);
         mvc.perform(get("/api/v1/bookings/" + number).with(user(admin).roles("ADMIN")))
                 .andExpect(status().isNotFound());
-        // /me 永远是当前账号，即使管理员也不能把它当作全局订单列表。
+        // 管理员仅负责管理，不能进入个人预约列表。
         mvc.perform(get("/api/v1/me/bookings").with(user(admin).roles("ADMIN")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("data.items").isEmpty());
+                .andExpect(status().isForbidden());
     }
 
     @Test

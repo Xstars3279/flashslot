@@ -30,7 +30,8 @@ function Start-LocalProcess($Name,$File,$Arguments,$Directory,$ChildEnvironment)
     $taskStartParams=@{FilePath=$File;ArgumentList=$Arguments;WorkingDirectory=$Directory;WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=(Join-Path $taskRun "$Name.out.log");RedirectStandardError=(Join-Path $taskRun "$Name.err.log")}
     if($ChildEnvironment) {$taskStartParams.Environment=$ChildEnvironment}
     $taskProcess=Start-Process @taskStartParams
-    $taskState.Processes+=@{Name=$Name;Id=$taskProcess.Id;Ticks=$taskProcess.StartTime.ToUniversalTime().Ticks;Path=$taskProcess.Path}
+    # 启动瞬间 Process.Path 可能仍为空；使用本次明确传入的可执行文件路径记录身份。
+    $taskState.Processes+=@{Name=$Name;Id=$taskProcess.Id;Ticks=$taskProcess.StartTime.ToUniversalTime().Ticks;Path=[IO.Path]::GetFullPath($File)}
     Save-LocalState
     return $taskProcess
 }

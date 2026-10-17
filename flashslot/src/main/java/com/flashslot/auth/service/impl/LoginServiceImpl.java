@@ -34,9 +34,11 @@ public class LoginServiceImpl implements LoginService {
     private final Clock clock;
     private final AccountPermissionMapper accounts;
     private final LoginRateLimiter limiter;
+    private final com.flashslot.auth.service.AccountBanCache bans;
 
     /** 密码认证成功后签发无状态 Token；不建立 Session，不记录明文密码或 Token。 */
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public LoginView login(LoginRequest request) {
         Authentication authenticated;
         try {
@@ -46,6 +48,8 @@ public class LoginServiceImpl implements LoginService {
                     limiter.tryAcquireAccount(
                             account == null ? null : account.getId(), request.getUsername());
             if (retryAfter > 0) throw new LoginRateLimitException(retryAfter);
+            if(account!=null && bans.isBlocked(account.getId(),account.getCredentialVersion()))
+                throw new BadCredentialsException("Invalid credentials");
             authenticated =
                     authenticationManager.authenticate(
                             UsernamePasswordAuthenticationToken.unauthenticated(
@@ -67,16 +71,24 @@ public class LoginServiceImpl implements LoginService {
                         .getAuthority()
                         .substring("ROLE_".length());
         LoginUserDetails user = (LoginUserDetails) authenticated.getPrincipal();
+        // 与改密/停用串行化，防止认证期间凭据发生变化后仍签出可用 Token。
+        var current = accounts.lockCredentials(user.getUserId());
+        if(current==null || !Boolean.TRUE.equals(current.getEnabled())
+                || current.getCredentialVersion()!=user.getCredentialVersion()
+                || !role.equals(current.getRole()))
+            throw new BusinessException(HttpStatus.UNAUTHORIZED,"INVALID_CREDENTIALS","用户名或密码错误");
         Instant issuedAt = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         Instant expiresAt = issuedAt.plusSeconds(properties.getTtlSeconds());
         var claims =
                 JwtClaimsSet.builder()
+                        .id(java.util.UUID.randomUUID().toString())
                         .issuer(JwtConfiguration.ISSUER)
                         .audience(List.of(JwtConfiguration.AUDIENCE))
                         .subject(authenticated.getName())
                         .issuedAt(issuedAt)
                         .expiresAt(expiresAt)
                         .claim("userId", user.getUserId())
+                        .claim("credentialVersion", user.getCredentialVersion())
                         .claim("roles", List.of(role))
                         .build();
         String token =

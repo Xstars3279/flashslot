@@ -1,6 +1,6 @@
 package com.flashslot.waitlist.config;
 
-import com.flashslot.waitlist.service.ReleaseJobService;
+import com.flashslot.waitlist.service.ReleaseDispatchService;
 import com.flashslot.waitlist.task.ReleaseJobScheduler;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,7 +17,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
         matchIfMissing = true)
 public class ReleaseSchedulingConfiguration {
     @Bean
-    public ReleaseJobScheduler releaseJobScheduler(ReleaseJobService service) {
+    public ReleaseJobScheduler releaseJobScheduler(ReleaseDispatchService service) {
         return new ReleaseJobScheduler(service);
     }
 

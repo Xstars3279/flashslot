@@ -18,8 +18,15 @@ public interface WaitlistMapper extends BaseMapper<WaitlistRecord> {
     @Select("SELECT * FROM waitlist_record WHERE id=#{id} FOR UPDATE")
     WaitlistRecord lock(long id);
 
-    @Select("SELECT id FROM waitlist_record WHERE status='WAITING' AND expire_at<=#{now} ORDER BY expire_at,id LIMIT 100")
-    List<Long> findExpired(Instant now);
+    @Select("""
+        SELECT id,expire_at AS due_at FROM waitlist_record
+        WHERE status='WAITING' AND expire_at<=#{now}
+          AND (#{afterTime,jdbcType=TIMESTAMP} IS NULL OR expire_at>#{afterTime}
+            OR (expire_at=#{afterTime} AND id>#{afterId}))
+        ORDER BY expire_at,id LIMIT 100
+        """)
+    List<com.flashslot.common.model.DueItem> findExpired(@Param("now") Instant now,
+        @Param("afterTime") Instant afterTime,@Param("afterId") long afterId);
 
     @Update("UPDATE waitlist_record SET status=#{status},reason=#{reason} WHERE id=#{id} AND status='WAITING'")
     int finish(@Param("id") long id, @Param("status") String status, @Param("reason") String reason);

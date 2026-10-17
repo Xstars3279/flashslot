@@ -42,6 +42,7 @@ import java.util.concurrent.*;
             "app.messaging.confirm-timeout-ms=1000"
         })
 @AutoConfigureMockMvc
+@org.springframework.test.annotation.DirtiesContext(classMode=org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 class MessagingDeliveryIntegrationTest {
     static final String EXCHANGE = "flashslot.events",
             QUEUE = "flashslot.notification",
@@ -55,6 +56,7 @@ class MessagingDeliveryIntegrationTest {
     @MockitoBean Clock clock;
     @MockitoSpyBean ConsumerInboxMapper inbox;
     @MockitoSpyBean NotificationConsumerService consumer;
+    @MockitoSpyBean com.flashslot.messaging.mapper.DeadLetterMapper deadLetters;
     String owner;
     long userId;
     final Instant now = Instant.parse("2026-10-15T00:00:00Z");
@@ -275,7 +277,7 @@ class MessagingDeliveryIntegrationTest {
     }
 
     @Test
-    void consumerFailureRollsBackInboxAndNotificationThenDeadLetterCanBeRedelivered()
+    void consumerFailureRollsBackInboxAndNotificationThenAdminCanRecoverPersistedDeadLetter()
             throws Exception {
         RabbitAdmin admin = new RabbitAdmin(rabbit.getConnectionFactory());
         admin.purgeQueue(DEAD);
@@ -289,13 +291,46 @@ class MessagingDeliveryIntegrationTest {
         await().atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
-                                assertThat(admin.getQueueInfo(DEAD).getMessageCount())
-                                        .isGreaterThanOrEqualTo(1));
+                                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dead_letter WHERE event_id=?",Integer.class,id))
+                                        .isEqualTo(1));
         assertThat(count("notification", id)).isZero();
         assertThat(count("consumer_inbox", id)).isZero();
         reset(inbox);
-        rabbit.send(EXCHANGE, "booking.created", rabbit.receive(DEAD));
+        long deadId=jdbc.queryForObject("SELECT id FROM dead_letter WHERE event_id=?",Long.class,id);
+        String operator="mq_admin_"+UUID.randomUUID();
+        jdbc.update("INSERT INTO app_user(username,password_hash,role) VALUES (?,'fixture','ADMIN')",operator);
+        mvc.perform(post("/api/v1/admin/dead-letters/"+deadId+"/replay").with(new TestUser(jdbc,operator).roles("ADMIN")).with(csrf())
+            .header("Idempotency-Key","restore-"+id).contentType("application/json").content("{\"reason\":\"已修复消费故障\"}"))
+            .andExpect(status().isOk());
         received(id);
+        assertThat(jdbc.queryForObject("SELECT status FROM dead_letter WHERE id=?",String.class,deadId)).isEqualTo("RECOVERED");
+    }
+
+    @Test
+    void failedConsumerRetainsMessageUntilDatabaseRecoveryEvenWithoutDeadLetterBinding() throws Exception {
+        RabbitAdmin admin = new RabbitAdmin(rabbit.getConnectionFactory());
+        var binding = new Binding(DEAD, Binding.DestinationType.QUEUE, "flashslot.dlx", "notification.dead", null);
+        String id = event("BOOKING_CREATED");
+        doThrow(new IllegalStateException("consumer down")).when(inbox).complete(id);
+        var failedSaves = new java.util.concurrent.atomic.AtomicInteger();
+        doAnswer(invocation -> {
+            failedSaves.incrementAndGet();
+            throw new org.springframework.dao.DataAccessResourceFailureException("failure store down");
+        }).when(deadLetters).capture(any(com.flashslot.messaging.entity.DeadLetter.class));
+        admin.removeBinding(binding);
+        try {
+            assertThat(publish(id)).isTrue();
+            await().atMost(Duration.ofSeconds(15)).until(() -> failedSaves.get() > 0);
+            assertThat(count("dead_letter", id)).isZero();
+            assertThat(count("notification", id)).isZero();
+            reset(deadLetters);
+            await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(count("dead_letter", id)).isEqualTo(1));
+            assertThat(count("consumer_inbox", id)).isZero();
+            assertThat(state(id)).isEqualTo("PUBLISHED");
+        } finally {
+            reset(deadLetters);
+            admin.declareBinding(binding);
+        }
     }
 
     @Test
@@ -315,8 +350,8 @@ class MessagingDeliveryIntegrationTest {
         await().atMost(Duration.ofSeconds(12))
                 .untilAsserted(
                         () ->
-                                assertThat(admin.getQueueInfo(DEAD).getMessageCount())
-                                        .isGreaterThanOrEqualTo(1));
+                                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dead_letter WHERE event_id=? AND error_code='FORMAT_UNSUPPORTED'",Integer.class,id))
+                                        .isEqualTo(1));
         assertThat(count("notification", id)).isZero();
         assertThat(count("consumer_inbox", id)).isZero();
     }

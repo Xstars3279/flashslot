@@ -7,4 +7,7 @@ public interface ReleaseJobService {
 
     /** 处理一个持久化任务；终态任务重复执行无副作用。 */
     void process(long jobId);
+
+    /** MQ 路径必须抛出异常，由监听器重试或死信；不能把未完成处理误 ACK。 */
+    void processMessage(long jobId);
 }

@@ -100,13 +100,15 @@ public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
             rejection = "CUTOFF";
             candidateStatus = "EXPIRED";
         } else if (!AccountValidator.isEnabled(account)) rejection = "ACCOUNT_DISABLED";
-        else if (!AccountValidator.isFormal(account)) rejection = "ACCOUNT_INVALID";
+        else if (!AccountValidator.isUser(account)) rejection = "ACCOUNT_INVALID";
         else if (account.getRestrictionUntil() != null
                 && decisionTime.isBefore(account.getRestrictionUntil()))
             rejection = "BOOKING_RESTRICTED";
         else if (bookingMapper.userConflicts(
                         account.getId(), job.getBookDate(), first, job.getEndSlot())
                 > 0) rejection = "USER_SLOT_CONFLICT";
+        else if(bookingMapper.dailyChargedSlots(account.getId(),job.getBookDate())+job.getEndSlot()-first>8)
+            rejection = "DAILY_QUOTA_EXCEEDED";
         if (rejection != null) {
             requireRows(
                     workMapper.transitionCandidate(
@@ -258,13 +260,16 @@ public class WaitlistMatchingServiceImpl implements WaitlistMatchingService {
         dayMapper.lockDay(located.getResourceId(), located.getBookDate());
         var job = workMapper.lock(id);
         if (job == null || !"PENDING".equals(job.getStatus())) return;
+        // 同一轮重复投递的多个失败只能累计一次，不能把一次故障放大为五次人工检查。
+        Instant failureTime=clock.instant();
+        if(job.getNextRunAt().isAfter(failureTime)) return;
         int attempts = job.getAttempts() + 1;
         job.setAttempts(attempts);
         if (error instanceof OwnershipException
                 || error instanceof DataIntegrityViolationException
                 || attempts >= 5) job.setStatus("MANUAL_REVIEW");
         job.setLastError(error.getClass().getSimpleName());
-        long next = (Math.floorDiv(clock.instant().getEpochSecond(), 1800) + 1) * 1800;
+        long next = (Math.floorDiv(failureTime.getEpochSecond(), 1800) + 1) * 1800;
         job.setNextRunAt(Instant.ofEpochSecond(next));
         requireRows(workMapper.save(job), 1);
     }

@@ -2,7 +2,7 @@ package com.flashslot.messaging.service.impl;
 
 import com.flashslot.messaging.entity.OutboxEvent;
 import com.flashslot.messaging.mapper.OutboxEventMapper;
-import com.flashslot.messaging.model.NotificationEventType;
+import com.flashslot.messaging.model.PublishedEvent;
 import com.flashslot.messaging.service.OutboxDeliveryService;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +22,7 @@ public class OutboxDeliveryServiceImpl implements OutboxDeliveryService {
     @Transactional(rollbackFor = Exception.class, propagation = Propagation.REQUIRES_NEW)
     public OutboxEvent claim(String eventId) {
         OutboxEvent event = mapper.lock(eventId);
-        if (event == null || !NotificationEventType.supported(event.getEventType())) return null;
+        if (event == null || !PublishedEvent.supported(event.getEventType())) return null;
         Instant now = clock.instant();
         boolean ready = "NEW".equals(event.getStatus()) && !event.getNextRunAt().isAfter(now);
         boolean expired =

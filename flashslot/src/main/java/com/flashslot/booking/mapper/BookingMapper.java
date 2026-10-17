@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.*;
 /** 订单单主键使用框架插入，联合主键占用使用普通批量 INSERT。 */
 @Mapper
 public interface BookingMapper extends BaseMapper<BookingOrder> {
+    /** 用户行锁内汇总跨设备配额，包含已消耗历史格，取消仅返还未开始的格。 */
+    @Select("SELECT COALESCE(SUM(charged_slots),0) FROM booking_order WHERE user_id=#{userId} AND book_date=#{date}")
+    int dailyChargedSlots(@Param("userId") long userId,@Param("date") LocalDate date);
     /** 持有日历锁后检查设备目标区间；HANDOFF 同样阻止直接预约。 */
     @Select("SELECT COUNT(*) FROM slot_occupation WHERE resource_id=#{resourceId} AND book_date=#{date} AND slot_index>=#{start} AND slot_index<#{end}")
     int resourceConflicts(@Param("resourceId") long resourceId,@Param("date") LocalDate date,@Param("start") int start,@Param("end") int end);

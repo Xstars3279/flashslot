@@ -30,12 +30,14 @@ public class AuthenticationConfiguration {
             var account = accounts.findForLogin(username);
             if (account == null) throw new UsernameNotFoundException("Invalid credentials");
             boolean formal = "USER".equals(account.getRole()) || "ADMIN".equals(account.getRole());
-            return new LoginUserDetails(
+            var details = new LoginUserDetails(
                     account.getId(),
                     account.getUsername(),
                     account.getPasswordHash(),
                     Boolean.TRUE.equals(account.getEnabled()) && formal,
                     List.of(new SimpleGrantedAuthority("ROLE_" + account.getRole())));
+            details.setCredentialVersion(account.getCredentialVersion());
+            return details;
         };
     }
 

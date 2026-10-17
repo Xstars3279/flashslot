@@ -5,7 +5,7 @@ import lombok.Getter;
 import java.util.Arrays;
 import java.util.List;
 
-/** 当前站内通知订阅的事件；排期缓存、候补唤醒不在本次投递范围。 */
+/** 站内通知事件；撮合指令由 PublishedEvent 独立路由到释放队列。 */
 @Getter
 public enum NotificationEventType {
     BOOKING_CREATED("booking.created", "预约成功", "预约已成功，请按时签到。"),

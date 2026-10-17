@@ -40,7 +40,7 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
     public int scanDueEvents() {
         int sent = 0;
         long started = System.nanoTime();
-        for (String id : mapper.findDue(clock.instant(), NotificationEventType.names())) {
+        for (String id : mapper.findDue(clock.instant(), PublishedEvent.names())) {
             if (Thread.currentThread().isInterrupted()
                     || System.nanoTime() - started >= TimeUnit.SECONDS.toNanos(10)) break;
             try {
@@ -65,7 +65,7 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
                             event.getAggregateId(),
                             event.getCreatedAt(),
                             event.getPayload());
-            envelope.validate();
+            PublishedEvent.validate(envelope);
             var message =
                     MessageBuilder.withBody(json.writeValueAsBytes(envelope))
                             .setContentType(MessageProperties.CONTENT_TYPE_JSON)
@@ -75,7 +75,7 @@ public class OutboxPublisherServiceImpl implements OutboxPublisherService {
             var correlation = new CorrelationData(event.getEventId() + ":" + event.getLeaseToken());
             rabbit.send(
                     "flashslot.events",
-                    NotificationEventType.valueOf(event.getEventType()).getRoutingKey(),
+                    PublishedEvent.routingKey(event.getEventType()),
                     message,
                     correlation);
             var confirm = correlation.getFuture().get(confirmTimeout, TimeUnit.MILLISECONDS);

@@ -92,7 +92,7 @@ try {
         $null = Invoke-RequiredSql (Get-Content -LiteralPath $taskFile.FullName -Raw -Encoding utf8)
         $taskChecks.Add('migration: ' + $taskFile.Name)
     }
-    foreach ($taskTable in @('resource','resource_day','app_user','booking_order','waitlist_record','release_job','slot_occupation','user_slot_occupation','credit_ledger','api_idempotency','outbox_event','consumer_inbox','notification','admin_audit')) {
+    foreach ($taskTable in @('resource','resource_day','app_user','booking_order','waitlist_record','release_job','slot_occupation','user_slot_occupation','credit_ledger','api_idempotency','outbox_event','consumer_inbox','notification','admin_audit','revoked_token','dead_letter')) {
         Assert-Query "table exists: $taskTable" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='flashslot_test' AND table_name='$taskTable';" '1'
     }
     $null = Invoke-RequiredSql @'
@@ -137,6 +137,7 @@ INSERT INTO user_slot_occupation(user_id,book_date,slot_index,booking_id) VALUES
     $null = Invoke-RequiredSql "INSERT INTO api_idempotency(user_id,operation,request_key,payload_hash,expires_at) VALUES(2,'CREATE_BOOKING','KEY_TEST',UNHEX(REPEAT('00',32)),'2026-10-22 00:00:00');"
     Assert-Query 'different users can reuse request key independently' "SELECT COUNT(*) FROM api_idempotency WHERE request_key='KEY_TEST';" '2'
     Assert-Rejected 'outbox rejects unknown publishing state' "INSERT INTO outbox_event(event_id,event_type,aggregate_id,payload,status,next_run_at) VALUES('00000000-0000-0000-0000-000000000002','BOOKING_CREATED','BK_TEST_A','{}','INVALID',UTC_TIMESTAMP(3));" 'ERROR 3819'
+    Assert-Query 'release compensation lookup has covering prefix index' "SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='outbox_event' AND index_name='idx_outbox_aggregate';" 'event_type,aggregate_id,created_at'
     $null = Invoke-RequiredSql @'
 START TRANSACTION;
 SELECT revision INTO @rev FROM resource_day WHERE resource_id=101 AND book_date='2026-10-15' FOR UPDATE;

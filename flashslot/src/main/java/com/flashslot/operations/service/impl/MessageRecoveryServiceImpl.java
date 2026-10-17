@@ -8,7 +8,7 @@ import com.flashslot.common.service.IdempotentOperationService;
 import com.flashslot.common.web.BusinessException;
 import com.flashslot.messaging.entity.OutboxEvent;
 import com.flashslot.messaging.mapper.OutboxEventMapper;
-import com.flashslot.messaging.model.NotificationEventType;
+import com.flashslot.messaging.model.PublishedEvent;
 import com.flashslot.operations.dto.RecoveryRequest;
 import com.flashslot.operations.service.*;
 import com.flashslot.operations.vo.*;
@@ -68,7 +68,7 @@ public class MessageRecoveryServiceImpl implements MessageRecoveryService {
         if (operation.getResultHttpStatus() != null)
             return operations.replay(operation, RecoveryActionView.class);
         if (!"FAILED".equals(event.getStatus())
-                || !NotificationEventType.supported(event.getEventType()))
+                || !PublishedEvent.supported(event.getEventType()))
             throw new BusinessException(
                     HttpStatus.CONFLICT, "EVENT_NOT_RETRYABLE", "只能重试受支持且投递失败的消息");
         if (mapper.update(

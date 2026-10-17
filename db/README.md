@@ -10,7 +10,13 @@
 | 04 | `04_credit_ledger.sql` | credit_ledger：变更原因、实际分值差、业务事件防重 |
 | 05 | `05_reliability_audit.sql` | api_idempotency、outbox_event、consumer_inbox、notification、admin_audit：请求回放、消息恢复、通知消费防重、操作追踪 |
 
-合计 14 张表，字段已添加中文注释。03 在候补和任务创建后补上订单的循环外键；转正顺序为已有候补/任务 → 插入新订单 → 更新候补与任务，不关闭外键检查。
+06_account_sessions.sql / V6 为 app_user 增加 credential_version 并创建 revoked_token；07_dead_letter.sql / V7 增加消费死信持久表。既有库通过 Flyway 顺序升级，不修改旧迁移。
+
+08_registration_phone.sql / V8 为 app_user 增加可空 phone 字段、手机号格式与唯一约束。旧账号保持为空；手机号注册固定创建 USER，手机号同时作为用户名。验证码保存在Redis，不增加数据库验证码表。
+
+09_release_dispatch_index.sql / V9 为 outbox_event 增加 (event_type,aggregate_id,created_at) 索引，用于半小时撮合指令查重与补偿，仍为16张表。指令复用Outbox和Inbox，不需要新的派发表。
+
+合计 16 张表，字段已添加中文注释。03 在候补和任务创建后补上订单的循环外键；转正顺序为已有候补/任务 → 插入新订单 → 更新候补与任务，不关闭外键检查。
 
 ## 已确认与待确认规则
 
@@ -18,7 +24,7 @@
 - 一台设备一个格不能被两个订单占用：slot_occupation 联合主键兜底。
 - 用户已确认不能跨设备预约重叠时段：user_slot_occupation 联合主键兜底。
 - 每台设备每天只有一个连续开放区间；不建多开放区间表或实验室表。
-- 每日总时长限制仍待用户确认，因此没有创建 user_day_quota。订单保留 charged_slots，既可以在用户锁内汇总，也可在后续确认需要时增加计数表；当前 SQL 不会自动实施每日 4 小时上限。
+- 每日总时长已确认为跨设备合计 8 格（4 小时），应用在用户行锁内汇总 booking_order.charged_slots；创建和候补转正都检查。取消只返还尚未开始格，无需额外计数表。
 - 单次最多 8 格（4 小时）、订单状态与用途枚举沿用 v1.1 设计。时间规则调整必须同步改约束和测试。
 
 ## 数据库保证与应用责任
@@ -31,7 +37,7 @@
 
 占用行的 booking_id/release_job_id 外键仅保证关联记录存在，不证明设备、日期、用户和区间一致；跨表归属还要在业务事务中检查。取消释放必须匹配精确订单/任务身份，不能只按 user_id 删除。
 
-version 和 revision 由应用在对应事务中增加，不会自动随 updated_at 递增。账号、设备与历史订单不物理删除，归档另行设计。
+version 和 revision 由应用在对应事务中增加，不会自动随 updated_at 递增。账号、设备与历史订单不物理删除。应用每小时短事务分批删除到期且已完成的幂等记录与过期 Token 撤销记录；Inbox、Outbox、审计和死信不自动删除。
 
 ## 本地约束验证
 

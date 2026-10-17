@@ -8,11 +8,25 @@
 - Web、Validation、Security/OAuth2 JWT 基础库、MyBatis-Plus 3.5.14、MySQL 驱动。
 - Redis、RabbitMQ、Flyway/MySQL 支持、Actuator、Prometheus 指标库。
 - springdoc 2.8.13、Lombok、JUnit/Spring Boot Test、Security Test、Testcontainers MySQL。
-- 14 个实体、5 个 Flyway 迁移、UTC Instant 类型处理器、可注入的 UTC Clock。
+- 15 个实体、8 个 Flyway 迁移、UTC Instant 类型处理器、可注入的 UTC Clock。
 - 设备资源模块已实现查询、新增、配置修改的 Controller / Service / Mapper；新增时生成未来 14 天日历，管理修改记录审计。
 - 创建预约已实现幂等、资格检查、日历锁、两类时间格占用和事务 Outbox；取消/提前结束、加入及取消候补、我的候补及每 30 分钟自动撮合已实现。短时设备签到码、本人签到、每 5 秒爽约/完成与全局候补过期扫描已实现。操作审计、站内通知、RabbitMQ 投递、管理员任务/投递恢复、信用调整和限制解除已实现。设备查询公开。local profile 提供 API 文档。
 - 登录使用 Spring Security AuthenticationManager + BCrypt，签发 HS256 JWT；Resource Server 验证 Bearer Token，Session 无状态，业务操作仍核对数据库当前权限。
 - 我的订单列表和订单详情已实现：只读查询当前状态、本人数据隔离、管理员详情权限及订单号游标分页。
+
+## 账号、设备状态、死信和历史清理
+
+- `GET /api/v1/admin/users?cursor=0&limit=20&username=...`：管理员分页查询；username 为可选的精确用户名，响应仅含 ID、用户名、角色和启用状态。
+- `POST /api/v1/admin/users`：管理员创建账号，字段 username、password、role（USER/ADMIN）、reason。用户名 3–64 位，以字母或数字开头，其余可含下划线、点、连字符；密码至少 8 个字符、至多 72 个 UTF-8 字节。
+- `POST /api/v1/me/password`：凭 currentPassword、newPassword 修改本人密码。
+- `POST /api/v1/admin/users/{id}/password-reset`：管理员凭 newPassword、reason 重置密码。
+- `PATCH /api/v1/admin/users/{id}/status`：enabled、reason；禁止停用当前管理员本人。改密、重置、停用/启用都会增加凭据版本，旧 Token 无法在重新启用后复活。管理变更与审计同事务，不记录密码。
+- `POST /api/v1/auth/logout`：撤销当前 Bearer Token，将 SHA-256 指纹与到期时间写入 revoked_token；不会撤销其他设备的登录。只有撤销成功后前端才清除浏览器凭据，网络失败可以重试。每次密码登录使用独立 jti；认证检查凭据版本及撤销记录，业务仍核对当前账号权限。V6 升级前签出的 Token 需重新登录。
+- `GET /api/v1/admin/resources`：分页包含 ACTIVE、PAUSED、RETIRED；公开设备列表仍仅展示 ACTIVE。
+- `PATCH /api/v1/admin/resources/{id}/status`：status、version、reason；PAUSED 禁止新申请但保留已有订单和候补。RETIRED 为终态；资源排他锁内检查全部未来/进行中订单、未到期候补和有效 HANDOFF，存在冲突返回 409。
+- 每日预约按 Asia/Shanghai 业务日期、同一用户跨设备合计最多 8 格；创建预约和候补转正都在用户锁内汇总 charged_slots。候补入列不预扣，转正时不足则以 DAILY_QUOTA_EXCEEDED 拒绝。取消/提前结束只返还尚未开始格，历史已消耗格仍计入配额。升级前已存在的超额预约不自动撤销，但会阻止继续增加当日用量。
+- `GET /api/v1/admin/dead-letters`：查看持久保存的消费死信摘要，不暴露原始消息；`POST /api/v1/admin/dead-letters/{id}/replay` 带 Idempotency-Key 和 reason，在同一事务执行原消费、Inbox、通知、恢复状态和审计。格式/版本不支持返回 409 并保留记录，不允许从管理页改写消息内容。DLQ 接收在数据库提交后才 ACK，存储失败退避并重新入队；旧死信队列消息也会被收录。相同原始消息按 SHA-256 去重累计接收次数。
+- 历史清理默认每小时运行，一批各删除最多 500 条到期的已完成幂等记录及 Token 撤销记录，每轮最多 20 个短事务；失败留待下轮。`HISTORY_CLEANUP_SCHEDULING_ENABLED=false` 可关闭。保留订单、账号、审计、通知、Outbox、Inbox 和死信历史，避免未经确认的历史保留规则破坏追溯与消费防重。
 
 ## 目录
 
@@ -32,7 +46,7 @@ src/main/java/com/flashslot/
 src/main/resources/
   application.yml
   application-local.yml
-  db/migration/           V1–V5
+  db/migration/           V1–V9
 src/test/java/            私有 MySQL 集成测试
 ```
 
@@ -62,6 +76,14 @@ Long userId = BaseContext.getCurrentId();
 
 ## 登录与身份认证
 
+普通用户手机号注册（本地联调）：
+
+- `POST /api/v1/auth/registration/code`，请求 `phone`（11位中国大陆手机号），返回 `developmentCode`（保留前导零的6位字符串）、`expiresIn=300`、`retryAfter=60`、`mode=DEVELOPMENT`。验证码直接展示前端，不发送短信、不证明手机号实际归属，响应禁止缓存。
+- `POST /api/v1/auth/register`，请求 `phone、code、password`；密码至少8个字符、至多72个UTF-8字节。成功 HTTP201，返回与登录相同的 LoginView，直接进入登录态。手机号作为登录用户名，固定创建 USER，不接受客户端 role。后续用手机号和密码登录；已有管理创建的用户名账号仍可登录。
+- Redis 保存验证码指纹及5分钟TTL，同号60秒冷却、每24小时10次、来源IP每小时60次，Lua原子校验，输错5次失效；Redis不可用拒绝注册。手机号和用户名双重查重，数据库手机号唯一索引兜底并发。事务失败保留验证码供重试，数据库提交后再清理；清理暂时失败也不能再次创建同一手机号。
+- V8 为 app_user 增加可空且唯一的 phone，旧账号与管理员数据保持不变。注册需要独立Redis，即使排期缓存关闭也需要Redis。
+- 仅 local 配置默认开启联调验证码；其他配置默认关闭。`REGISTRATION_DEVELOPMENT_CODE_ENABLED=false` 可明确禁用，禁用时两个接口返回503，不返回验证码。当前没有真实短信服务商配置，不应将此模式当成真实手机号认证。
+
 `GET /api/v1/me/profile` 查询本人最新账号状态，需要 Bearer Token；返回 `id、username、role、creditScore、restrictionUntil、restricted、serverTime`，不接受请求参数指定他人身份，不返回密码。停用或非正式账号拒绝访问，响应禁止缓存。`restricted` 按服务器当前时间计算，到达限制截止时刻即为 false；信用分较低不等于永久禁止预约。
 
 ## 日历持续维护
@@ -90,11 +112,13 @@ Authorization: Bearer <accessToken>
 - JWT 固定 HS256，必须匹配 issuer=flashslot、audience=flashslot-api，必须有 sub、userId、iat、exp。userId 为正整数且来自密码认证后的账号，不接受请求体指定；签发时间不能在未来，恰好达到 exp 即失效。sub 保留签发时的数据库规范用户名，业务身份以不可变用户 ID 为准，账号改名不改变旧 Token 的归属；roles 映射为 ROLE_USER/ROLE_ADMIN。此前不带 userId 的旧 Token 不再接受，需要重新登录。
 - 只接受 Authorization Header 中的 Bearer Token；不从 Cookie、URL 参数或 Session 取认证身份，不开启表单登录或 HTTP Basic。登录和 Bearer 写请求不要求 CSRF Token；其他写请求仍保留 CSRF 检查。
 - 普通用户和管理员可以登录；未知账号、错误密码、禁用账号及 DEMO 都返回相同的 401 INVALID_CREDENTIALS。无效/过期 Token 返回 401 UNAUTHENTICATED。数据库认证故障返回 503 AUTHENTICATION_UNAVAILABLE，不伪装成密码错误。
-- 单实例登录限流：每 IP 每 60 秒最多 30 次、每账号最多 5 次，成功和失败都计数。先限制连接来源 IP，再按数据库账号 ID 限制账号，避免数据库大小写/重音等价用户名绕过限制；未知账号按规范化输入计数。超限 429 LOGIN_RATE_LIMITED，附 Retry-After。桶总数上限 10000，过期清理，容量耗尽暂拒请求；当前不提供多实例全局限流，重启会清空窗口。
+- 登录限流使用 Redis Lua 原子计数与 TTL：默认每 IP 每 60 秒最多 30 次、每账号最多 5 次，成功和失败都计数。同一 Redis 与键空间下各实例共享额度，应用重启不会清空 Redis 窗口。窗口从首次请求开始，拒绝不续期；配置为 `LOGIN_IP_LIMIT`、`LOGIN_ACCOUNT_LIMIT`、`LOGIN_WINDOW_SECONDS`，各实例应保持一致。先限制来源 IP，再按数据库账号 ID 限制账号，避免大小写/重音等价用户名绕过；未知账号按规范化输入计数。超限返回 429，附 Retry-After。Redis key 中身份使用 SHA-256 摘要。
+- Redis 故障时退回本机影子计数（最多 10000 个桶，过期清理、容量满时暂拒），不会因刚切换降级就丢掉本实例近期尝试；每 2 秒尝试恢复 Redis 并记录降级日志。故障期间各实例独立计数，无法保证全局额度；恢复时也不将本地计数合并回 Redis。Redis 重启丢数据或内存淘汰也可能重置共享窗口，此机制不提供跨故障严格配额。
+- 客户端 IP 默认取连接来源，忽略转发头。仅 `TRUSTED_PROXIES` 配置的代理 IP/CIDR（逗号分隔）可提供单个合法 `X-Real-IP`，不接受主机名、地址链或重复头；Nginx 必须覆盖该头。该解析同时用于登录与注册验证码 IP 防刷。Compose 已固定入口 IP 并仅信任它；不要把所有来源设为可信代理，或再无条件启用框架转发头解析。
 - IP 使用服务端 remoteAddr，不直接相信客户端 X-Forwarded-For。以后接反向代理时应配置可信代理来源，否则同一代理的请求共享 IP 窗口。
-- Token 不是永久权限：预约、订单查询和管理接口仍检查数据库当前账号启用状态及角色，停用/降权后相关业务请求拒绝。没有刷新 Token、登出撤销或密码修改接口，Token 到期后重新登录。
+- Token 不是永久权限：预约、订单查询和管理接口仍检查数据库当前账号启用状态及角色，停用/降权后相关业务请求拒绝。提供登出撤销与密码修改接口；没有刷新 Token 接口，到期后重新登录。
 
-账号仍由受控初始化创建，本次没有开放注册接口或提供默认账号。`app_user.password_hash` 必须保存 `BCryptPasswordEncoder(12).encode(密码)` 生成的 BCrypt 哈希，不能保存明文、MD5 或测试夹具中的占位字符串；角色为 USER 或 ADMIN。不要将初始化密码写入迁移或仓库。
+普通用户可通过手机号验证码注册，注册成功直接登录；管理员账号仍通过管理员账号管理入口创建，初始管理员受控初始化，不提供公开管理员注册。`app_user.password_hash` 必须保存 `BCryptPasswordEncoder(12).encode(密码)` 生成的 BCrypt 哈希，不能保存明文、MD5 或测试夹具中的占位字符串；角色为 USER 或 ADMIN。不要将初始化密码写入迁移或仓库。
 
 启动必须提供 `JWT_SECRET`：至少 32 个随机字节的标准 Base64 编码，不配置或格式/长度不合法会启动失败。PowerShell 7 可在首次准备环境时生成：
 
@@ -152,12 +176,12 @@ PATCH 的 version 必填；可修改名称、位置、默认开放范围，至�
 {"resourceId":1,"bookDate":"2026-10-16","startSlot":18,"endSlot":22,"purpose":"EXPERIMENT"}
 ```
 
-- `bookDate` 为上海今天至今天 + 6 天，区间 `[startSlot,endSlot)`，每格半小时，连续 1–8 格。用途为 `EXPERIMENT`、`STUDY` 或 `DEVICE_TEST`。每日累计配额尚未确定，本接口不施加每日 8 格限制。
+- `bookDate` 为上海今天至今天 + 6 天，区间 `[startSlot,endSlot)`，每格半小时，连续 1–8 格。用途为 `EXPERIMENT`、`STUDY` 或 `DEVICE_TEST`。每天跨设备累计最多 8 格（4 小时），创建和候补转正均在用户行锁内检查；取消只返还尚未开始格。
 - 成功 HTTP 201，返回 `Result<BookingView>`：orderNo、resourceId、bookDate、startSlot、endSlot、purpose、status=CONFIRMED、source=DIRECT、chargedSlots、startAt、endAt、checkInOpenAt、checkInDeadline。绝对时间为 UTC；签到窗口为开始前 10 分钟至开始后 15 分钟。
-- 必须为当前仍启用的正式账号（USER/ADMIN）；DEMO 不允许预约。处罚截止前拒绝，到期后即使分数低于 60 也允许。设备必须 ACTIVE，日历已生成、启用且完整覆盖区间。判定时间在业务锁全部取得后捕获，须严格早于开始前 30 分钟。
+- 必须为当前仍启用的 USER 账号；ADMIN 仅用于管理，不能创建预约、加入候补或本人签到；DEMO 不允许预约。处罚截止前拒绝，到期后即使分数低于 60 也允许。设备必须 ACTIVE，日历已生成、启用且完整覆盖区间。判定时间在业务锁全部取得后捕获，须严格早于开始前 30 分钟。
 - 锁序为幂等记录 → 设备共享锁 → 当日日历排他锁 → 本人同区间候补 → 用户排他锁。设备与用户占用都先检查，再用普通批量 INSERT；设备占用及用户占用联合主键是最终防线。冲突或异常不会留下订单或部分占用。本人同设备同日同区间 WAITING 候补成功后撤销。
 - 订单、两类占用、日历 revision+1、BOOKING_CREATED / SCHEDULE_CHANGED Outbox 和幂等结果同事务。业务事务只保存事件；通知事件由后台投递 MQ，SCHEDULE_CHANGED 仍等待缓存模块接入。
-- 幂等作用域为用户 + CREATE_BOOKING + 键；哈希规范化设备、日期、区间、用途。同键同参数返回首次 HTTP 状态与响应快照，订单后来变化不改变回放；换参数返回 409 IDEMPOTENCY_CONFLICT。回放仍校验账号启用状态。记录保存 7 天归档期限，当前未实现自动清理；不会因为期限已到在原行上覆盖结果。
+- 幂等作用域为用户 + CREATE_BOOKING + 键；哈希规范化设备、日期、区间、用途。同键同参数返回首次 HTTP 状态与响应快照，订单后来变化不改变回放；换参数返回 409 IDEMPOTENCY_CONFLICT。回放仍校验账号启用状态。记录保存 7 天归档期限，每小时分批清理已到期且已完成的记录；保留期内不会在原行上覆盖结果，到期清理后同键可作为新请求处理。
 - 锁内业务拒绝保存首次结果（包括 403/404/409 和缺日历的 503），相同键重试继续回放；修改意图或条件变化后重新申请使用新键。参数/认证失败不保留结果；唯一键最终兜底冲突与基础设施异常回滚，原键可重试。死锁/锁超时直接回滚并返回 503，客户端可用原键重试。
 - 主要错误：400 INVALID_ARGUMENT / INVALID_DATE；401 UNAUTHENTICATED；403 ACCOUNT_DISABLED / BOOKING_RESTRICTED / FORBIDDEN；404 RESOURCE_NOT_FOUND；409 RESOURCE_CLOSED / BOOKING_CUTOFF / RESOURCE_SLOT_CONFLICT / USER_SLOT_CONFLICT / SLOT_CONFLICT / IDEMPOTENCY_CONFLICT；503 CALENDAR_NOT_READY / BOOKING_BUSY。
 
@@ -185,7 +209,7 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 - `version、createdAt、updatedAt`：订单当前版本及记录时间。
 - `releaseJobNo、releaseStatus`：本订单取消后触发的释放任务进度；无任务时为 null。状态可为 PENDING/MATCHED/RELEASED/MANUAL_REVIEW。通过 `source_booking_id` 关联，不把候补转正来源任务当成本订单的释放进度。
 
-两个接口都要求登录并检查数据库当前账号仍启用，DEMO 账号不能访问正式订单。信用处罚不妨碍查询已有订单；设备暂停/退役也不会隐藏历史订单。我的订单列表始终限定当前账号，包括管理员；详情跨用户访问须同时具备认证上下文 ROLE_ADMIN 和数据库当前 ADMIN 角色。无权查看与不存在的订单统一返回 404 BOOKING_NOT_FOUND，不泄露他人订单是否存在。未登录 401，停用账号 403 ACCOUNT_DISABLED，其他无效账号 403 FORBIDDEN。
+两个接口都要求登录并检查数据库当前账号仍启用，DEMO 账号不能访问正式订单。信用处罚不妨碍查询已有订单；设备暂停/退役也不会隐藏历史订单。我的订单列表仅向 USER 开放且始终限定当前账号；管理员可通过详情接口查询他人订单，跨用户访问须同时具备认证上下文 ROLE_ADMIN 和数据库当前 ADMIN 角色。无权查看与不存在的订单统一返回 404 BOOKING_NOT_FOUND，不泄露他人订单是否存在。未登录 401，停用账号 403 ACCOUNT_DISABLED，其他无效账号 403 FORBIDDEN。
 
 查询以一个只读一致快照读取账号、游标、订单和释放进度，不加写锁，不推进订单状态。返回数据库已持久化的当前状态，与创建接口的首次幂等响应快照不同。取消路径会归一化已到期的爽约/完成状态，但签到接口和后台扫描仍待实现，单纯超过时间不会在查询时自动改变状态。响应不返回内部用户 ID、订单 ID、关联数据库 ID 或任务内部错误日志。
 
@@ -231,13 +255,17 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 - 目标完整区间中至少有一格 BOOKED/HANDOFF 才需要候补；完全空闲返回 409 WAITLIST_NOT_NEEDED。同人同设备同日期同完整区间最多一条 WAITING，否则 WAITLIST_DUPLICATE；每用户每天最多 3 条未过期 WAITING，跨设备共享上限，超限 WAITLIST_LIMIT。
 - 候补不写设备格或用户格，不预扣时长。转正截止 expireAt=开始前 10 分钟；队列按同设备、日期、完整区间的数据库 ID 升序 FIFO，时间不同或部分重叠属于不同队列。
 - 成功 HTTP 201，data 为 WaitlistView：waitlistNo、resourceId、resourceName、resourceLocation、bookDate、startSlot、endSlot、purpose、status、reason、expireAt、createdAt、updatedAt、matchedOrderNo、queuePosition。queuePosition 是当前未过期 WAITING 的近似位置，从 1 开始，不承诺一定转正；非有效排队记录为 null。幂等回放保留首次位置，列表读取当前位置。
-- GET 返回 `Result<WaitlistPage>`，items、nextCursor、hasMore；默认 20 条，最多 100。nextCursor 为末条候补编号，下页原样传 cursor，按创建时间和 ID 倒序稳定翻页，末页 null。只读本人记录，包括管理员；别人的游标与未知游标统一返回 400 INVALID_CURSOR。不暴露排在前面的其他用户身份。
+- GET 返回 `Result<WaitlistPage>`，items、nextCursor、hasMore；默认 20 条，最多 100。nextCursor 为末条候补编号，下页原样传 cursor，按创建时间和 ID 倒序稳定翻页，末页 null。只读本人记录，管理员不使用个人候补功能；别人的游标与未知游标统一返回 400 INVALID_CURSOR。不暴露排在前面的其他用户身份。
 
-**自动撮合已实现：每 30 分钟扫描一次。** 上海时间每小时整点、半点扫描到期的 PENDING 释放任务，启动时不立即扫描。A 取消后进入 HANDOFF，下一次扫描按完整区间匹配、先入先出的顺序重新检查候补用户资格和时间冲突；合格者创建正式预约，候补和任务变为 MATCHED。没有可转正候补时，任务变为 RELEASED，释放对应占用，恢复直约。转正订单、两类占用、候补状态和 Outbox 在同一事务提交；重复或并发执行不会重复转正。
+**自动撮合通过 MQ 执行，按半小时派发。** 上海时间每小时整点、半点扫描到期的 PENDING 任务，原子写入 `RELEASE_DISPATCHED` Outbox；独立 `flashslot.release` 队列的消费者执行撮合。启动时及每分钟执行补偿扫描，筛选时间严格取最近整点或半点，刚取消的任务仍等下一半小时。每任务每半小时用固定 UUID，重复或并发扫描不会创建多条相同指令；排除本轮已派发任务，队头积压不会挡住后续批次。
 
-每次最多扫描 50 个任务，每个任务最多处理 20 步；预算耗尽保留 PENDING 和 HANDOFF，留待下一次扫描继续。基础设施异常先回滚，再记录失败，下次整点或半点重试；累计 5 次失败或占用归属异常进入 MANUAL_REVIEW，保留占用供人工检查。可通过 `RELEASE_SCHEDULING_ENABLED=false` 关闭自动扫描。
+A 取消后进入 HANDOFF，消费者按完整区间 FIFO 重新检查候补用户资格、每日配额和时间冲突；合格者创建正式预约，候补和任务变为 MATCHED。无人符合时变为 RELEASED 并恢复直约。每个候选使用独立短事务，订单、两类占用、候补状态、任务和业务 Outbox 同事务提交。`release-v1` Inbox 过滤已完成消息；业务提交后但 Inbox/ACK 前崩溃，由任务终态、候补状态、时间格精确归属与订单唯一约束防止重复转正或释放。消息不承诺只投递一次。
 
-扫描可能延迟近 30 分钟；达到有效区间开始前 10 分钟时不再转正，而是处理匹配候补的过期状态并释放占用。迟到任务只处理尚未开始的时间格，不会自动把原候补改约到其他区间。当前没有候补取消接口和全局候补过期扫描；未被本次撮合选中的过期候补仍可能保留 WAITING，候补列表的队列位置及每日上限计算会排除已过期项。
+每批最多派发 50 个任务，每次消费最多处理 20 步；预算耗尽保留 PENDING 和 HANDOFF，下半小时用新事件继续。消费异常先回滚，MQ 最多尝试 3 次，耗尽后才记录一次业务失败并进入 `flashslot.release.dead`；任务退避至下个整点或半点，由数据库补偿扫描重新派发。归属/完整性异常或累计 5 轮失败进入 MANUAL_REVIEW，保留占用，管理员核对后重试或人工释放。重复失败不能在同一退避周期叠加次数。关闭 `RELEASE_SCHEDULING_ENABLED` 停止派发与补偿，不影响已入队消息消费。
+
+撮合死信持久化到现有管理页；恢复操作将原 Outbox 重置 NEW，与死信恢复状态、幂等和审计同事务提交，再由发布器发送，不在管理请求中同步撮合。任务仍遵守到期时间和人工检查状态。恢复后若再次失败，同一死信重新成为 FAILED，允许用新的恢复请求处理。broker 暂不可用时事件留在 Outbox；进程重启、漏扫描或批次积压由补偿恢复。该链路需要启用 RabbitMQ 发布和消费。
+
+扫描可能延迟近 30 分钟，积压或故障还会增加等待；达到有效区间开始前 10 分钟时不再转正，而是处理匹配候补的过期状态并释放占用。迟到任务只处理尚未开始格，不自动把原候补改约到其他区间。候补取消及全局过期扫描已实现。
 
 ## 操作审计与站内通知
 
@@ -259,13 +287,13 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 
 链路为：业务事务保存 Outbox → 发布器领取事件 → RabbitMQ → 通知消费者同事务保存 notification 和 consumer_inbox → 监听方法成功返回后容器 ACK。业务提交后，发布器每轮间隔 5 秒扫描，最多 50 条，单轮超过 10 秒不再处理下一条；网络发送时不持有数据库事务锁。60 秒租约到期后可重新领取，旧租约的迟到确认或失败记录不能覆盖新尝试。
 
-当前支持预约创建、取消、爽约、签到、完成，以及候补转正、过期、拒绝八类通知。候补转正的 BOOKING_CREATED 事件只记录消费完成，由 WAITLIST_MATCHED 生成一条“候补成功”，避免重复提示。事件快照只表达当时发生的事情，点击订单仍读取当前状态。
+当前支持预约创建、取消、爽约、签到、完成，以及候补转正、取消、过期、拒绝九类通知。候补转正的 BOOKING_CREATED 事件只记录消费完成，由 WAITLIST_MATCHED 生成一条“候补成功”，避免重复提示。事件快照只表达当时发生的事情，点击订单仍读取当前状态。
 
 拓扑为 durable direct exchange `flashslot.events`，通知队列 `flashslot.notification`；死信 exchange 为 `flashslot.dlx`，死信队列 `flashslot.notification.dead`。发布消息为 persistent，必须收到 publisher confirm ACK 且没有 mandatory return 才标记 PUBLISHED；这只表示 broker 接收成功，不代表用户已读或消费者成功。失败按 1、5、30、120、600 秒退避，之后封顶 600 秒，第 12 次进入 FAILED。确认丢失或提交前崩溃允许重投，由 Inbox 与通知唯一约束防重。
 
-消费失败最多尝试 3 次，重试间隔约 1 秒、2 秒，仍失败或无法解析则进入死信队列。通知插入后 Inbox 写入失败会一起回滚；重新投递后只保存一条通知。已有消息仍会为停用账号落库，但该账号不能查询，直到恢复启用。
+消费失败最多尝试 3 次，重试间隔约 1 秒、2 秒，仍失败或无法解析则由 recoverer 先将原文提交至数据库 `dead_letter`，提交成功后才允许容器 ACK；保存失败抛出立即重新入队异常，原消息保留在业务队列。通知与撮合均采用此流程，不依赖 classic 队列的 DLX 转发可靠性。现有死信队列和监听器保留用于接收旧版本或 broker 转入的消息，不需要修改已有队列类型。通知插入后 Inbox 写入失败会一起回滚；重新投递后只保存一条通知。已有消息仍会为停用账号落库，但该账号不能查询，直到恢复启用。
 
-`MESSAGING_ENABLED=false` 同时关闭 MQ 监听和自动发布，业务仍保存事件、三个接口仍可访问已有数据；`MESSAGING_SCHEDULING_ENABLED=false` 只关闭发布扫描。默认 broker 为 localhost:5672，账号密码使用现有 RABBIT_* 配置。排期、释放和信用事件未接入通知队列，保留 NEW；候补仍严格按每 30 分钟扫描处理。FAILED 投递重试见下方恢复接口；消费端死信尚无管理页面重放，也没有 WebSocket、短信或邮件推送。
+`MESSAGING_ENABLED=false` 关闭 MQ 监听和自动发布，业务及撮合派发仍保存 Outbox，但自动撮合将等待 MQ 恢复；`MESSAGING_SCHEDULING_ENABLED=false` 只关闭发布扫描。默认 broker 为 localhost:5672，使用 RABBIT_* 配置。排期和信用事件、用于审计的原始 RELEASE_REQUESTED/COMPLETED/MATCHED 不进通知队列；专用 RELEASE_DISPATCHED 负责撮合。FAILED 投递重试、通知与撮合消费死信均可在管理员异常处理页恢复。当前没有 WebSocket、真实短信或邮件推送。
 
 ## 签到、爽约与完成
 
@@ -281,9 +309,9 @@ cursor 使用上一页末条订单的 orderNo，服务端在本人订单中解�
 
 签到不需要 `Idempotency-Key`，通过订单锁和状态实现幂等：已签到或已完成订单重复请求返回原签到时间，无需仍然有效的现场码。超时请求先提交 NO_SHOW、扣分、占用释放及事件，再返回 `422 CHECKIN_EXPIRED`；即使后台任务延迟，也不能迟到签到。请求身份从 `BaseContext` 获取，取得资源共享锁 → 日历锁 → 订单锁 → 用户锁后再读取当前时间，保证与取消和到期任务协调。
 
-自动到期任务在启动 5 秒后开始，每轮结束后间隔 5 秒扫描，使用独立调度线程，单批最多 100 条，按截止时间和订单 ID 排序。CONFIRMED 且签到截止已到转为 NO_SHOW；CHECKED_IN 且结束时间已到转为 COMPLETED，保留签到时间与历史占用。每条订单使用独立事务，单条失败回滚并记录日志，继续处理本批其他订单，下轮重试；多实例同时扫描只会生效一次。可通过 `BOOKING_EXPIRY_SCHEDULING_ENABLED=false` 关闭本任务，不影响候补扫描开关。
+自动到期任务在启动 5 秒后开始，每次结束后间隔 5 秒扫描，使用独立调度线程，单批最多 100 条，按截止时间和订单 ID 排序。扫描一轮时固定到期截止时间，以 `(到期时间, ID)` 游标跨调度继续；失败记录也推进游标，避免最早 100 条异常阻塞后续健康订单，扫完后从头重试。固定截止时间保证持续新增记录不会阻止扫描绕回；游标仅在进程内，重启从头扫描，业务状态和约束负责幂等。CONFIRMED 且签到截止已到转为 NO_SHOW；CHECKED_IN 且结束时间已到转为 COMPLETED，保留签到时间与历史占用。每条订单使用独立事务，单条失败回滚并记录日志；多实例同时扫描只会生效一次。可通过 `BOOKING_EXPIRY_SCHEDULING_ENABLED=false` 关闭本任务，不影响候补扫描开关。
 
-爽约每单只扣一次 10 分、最低到 0，分数低于 60 时延长固定 7 天预约限制；封禁或角色变更不会阻止后台结算。只将尚未开始的设备格转为 HANDOFF、删除相应用户格并创建释放任务，已开始格保留历史记录，候补仍在上海整点/半点处理。例如 09:00–11:00 的订单在 09:15 爽约，09:00–09:30 保留，09:30–11:00 进入候补处理。若任务迟到至整个区间已结束，仍记爽约但不创建无未来时段的释放任务。每日总时长配额仍未启用，本批不新增该规则。
+爽约每单只扣一次 10 分、最低到 0，分数低于 60 时延长固定 7 天预约限制；封禁或角色变更不会阻止后台结算。只将尚未开始的设备格转为 HANDOFF、删除相应用户格并创建释放任务，已开始格保留历史记录，候补仍在上海整点/半点处理。例如 09:00–11:00 的订单在 09:15 爽约，09:00–09:30 保留，09:30–11:00 进入候补处理。若任务迟到至整个区间已结束，仍记爽约但不创建无未来时段的释放任务。每日跨设备合计最多 8 格（4 小时），用户锁内汇总 charged_slots；已开始的格仍计入当日配额。
 
 ## 日历与排期接口
 
@@ -357,7 +385,7 @@ Redis/RabbitMQ 配置使用 REDIS_HOST/REDIS_PORT/REDIS_PASSWORD 和 RABBIT_HOST
 通知模块默认连接 RabbitMQ，需按上述环境变量配置已启动的 broker；通知网络发送不在预约事务内，MQ 故障不会撤销已提交订单。Redis缓存可关闭或故障回源。就绪探针仅包含数据库和应用就绪状态。
 后续启用消费者后需要启动这些中间件。Compose 和完整 M0 环境交付属于后续步骤。
 
-Flyway 在应用启动时执行 V1–V5，来源是上层 `db/01–05` 的当前 14 表版本。
+Flyway 在应用启动时执行 V1–V9，来源是上层 `db/01–09` 的当前 16 表版本。V9 仅增加 Outbox 派发查重索引，不增加表。
 **使用 Flyway 管理的新库不要先手工执行 db SQL。** 已有手工建表的库需要单独核对和建立迁移基线，当前不自动 baseline。
 迁移一旦应用就保持不可变；后续结构变化新增 V6 等迁移，不修改已部署脚本。
 
@@ -398,13 +426,26 @@ PowerShell 7、JDK 21、Maven，以及 PATH 中的 MySQL 8.0 mysql/mysqld：
 
 新增POST都要求`Idempotency-Key`。管理员请求体必须包含1至255字`reason`；信用调整另需`delta`。结果按Result包装，成功HTTP200；重复键同参数回放首次结果，换参数409。幂等结果回放前仍复核当前权限。
 
-候补取消与转正使用资源→日历→候补→用户锁序，同一候补不能同时取消和转正。取消/过期事件与状态同事务。全局到期清理每5秒最多100条、每条独立事务，不依赖释放任务存在；多实例重复扫描只产生一次状态变更/过期事件。该扫描随`RELEASE_SCHEDULING_ENABLED`关闭，撮合周期依旧为30分钟。WAITLIST_CANCELED也会生成站内通知。
+候补取消与转正使用资源→日历→候补→用户锁序，同一候补不能同时取消和转正。取消/过期事件与状态同事务。全局到期清理每5秒最多100条、每条独立事务，不依赖释放任务存在；与订单扫描一样固定一轮截止时间，以 `(expire_at, ID)` 游标跨批越过失败项，扫完后重新尝试。多实例重复扫描只产生一次状态变更/过期事件。该扫描随`RELEASE_SCHEDULING_ENABLED`关闭，撮合周期依旧为30分钟。WAITLIST_CANCELED也会生成站内通知。
 
-管理员操作与审计、幂等结果同事务；信用调整还包含ADMIN_ADJUST信用流水。人工释放不能越过归属异常，需先核查数据。限制解除与分数调整分开进行。FAILED重试仅针对Outbox发布失败，不能把PUBLISHED或正在发送的消息强行重置；消费端死信管理重放仍未实现。
+管理员操作与审计、幂等结果同事务；信用调整还包含ADMIN_ADJUST信用流水。人工释放不能越过归属异常，需先核查数据。限制解除与分数调整分开进行。FAILED重试仅针对Outbox发布失败，不能把PUBLISHED或正在发送的消息强行重置；消费端死信自动持久保存至 dead_letter，管理员可带原因恢复消费，原事件 ID 和 Inbox 防重机制保持不变。
 
 ## Redis排期缓存与本机前端
 
-排期先在只读快照中读取设备、日历，使用`flashslot:schedule:{resourceId}:{date}:{revision}`缓存公开的格子占用，TTL30秒。预约/取消/转正/日历调整提交后revision改变，下一次查询立即使用新键；旧查询即使晚到回填也只填旧键，不覆盖新版本。因此无需等待异步MQ失效，SCHEDULE_CHANGED事件仍保留NEW。
+### 封禁与热点缓存（本地）
+
+- JWT 请求先验签和时间，再检查 Redis `flashslot:auth:account-ban:{userId}`；命中当前或更新凭据版本的封禁则拒绝。密码登录在 BCrypt 前检查封禁，数据库当前 enabled、credential_version 与 Token 撤销表仍参与核验。停用/启用提交后用 Lua 同步单调版本，启用保留版本标记，防止迟到的停用回调覆盖；旧 Token 不能在启用后复活。
+- Redis 故障时封禁检查降级到数据库，不能因缓存丢失绕过停用。`ACCOUNT_BAN_CACHE_ENABLED=false` 可关闭这层加速，数据库检查保持。封禁键不设过期，每个发生过状态变更的账号一条，直到管理员启用或更新同一键；不保存密码或 Token 原文。
+- 账号封禁对应管理员停用；信用处罚的 restriction_until 仍只限制新预约，允许用户登录查看记录、取消和履行已有预约，不混用两种限制。
+- 设备详情使用 `flashslot:resource:{id}:{version}`；每次先查数据库version，再访问对应缓存，版本和详情在同一REPEATABLE_READ快照中读取。创建24小时内视为新设备优先缓存，也可通过 `HOT_RESOURCE_IDS=1,2,3` 配置固定热点。热点详情TTL120–180秒，普通详情20–40秒。不存在设备使用 `:missing` 空值键5–10秒，减少重复详情查询；版本查询仍访问数据库，不能宣称不存在ID完全不查库。新增设备有version=0，会直接忽略旧missing键。
+- 排期公共占用缓存按设备/日期/revision隔离，普通TTL30–45秒、热点60–90秒；每次独立随机偏移，分散集中失效。设备状态、日历版本、本人信息和时间资格仍每次从数据库快照与服务器时间计算，不把个性化可预约标记缓存给其他人。
+- 缓存未命中使用Redisson分布式锁并二次检查缓存。`tryLock(waitTime, TimeUnit)` 不传固定leaseTime，看门狗默认30秒并自动续期；等待1秒仍无缓存返回503，让客户端重试，避免等待者集体回源。锁只负责重建，不作为预约库存事实来源。
+- 设备更新与version递增、审计在同一数据库事务中完成，提交后删除旧版本键和missing键。新请求根据数据库新版本访问新键，即使删除失败或旧请求晚到回填，也只留下不会被新请求使用的旧版本键，随后TTL清理。锁按设备ID和版本区分，旧版本慢请求不阻塞新版本加载。Redis故障时回源数据库并短暂退避网络重试；事务回滚不会发布新版本或删除原缓存。版本以数据库为准，不使用Redis随机标记。
+- 预约继续执行资源/日历/用户锁、时间格唯一约束、幂等、提前30分钟、7天窗口、跨设备不重叠和每日8格限制。Redis缓存失效、热点流量或锁续期不改变这些规则。看门狗只在持锁进程正常续期时维持锁，不能代替数据库约束。
+
+新增配置：`app.cache-lock.watchdog-timeout-ms=30000`、`HOT_RESOURCE_IDS`、`ACCOUNT_BAN_CACHE_ENABLED`。Redisson 3.52.0 复用Spring Redis的主机、端口、用户、密码和数据库配置，延迟连接，不另建公网Redis。
+
+排期先在只读快照中读取设备、日历，使用`flashslot:schedule:{resourceId}:{date}:{revision}`缓存公开的格子占用，TTL按上述冷热策略随机取值。预约/取消/转正/日历调整提交后revision改变，下一次查询立即使用新键；旧查询即使晚到回填也只填旧键，不覆盖新版本。因此无需等待异步MQ失效，SCHEDULE_CHANGED事件仍保留NEW。
 
 缓存不含个人订单号、用户ID、密码或最终可预约标记；启用账号的本人订单信息在当前快照内单独查询并覆盖显示。开放状态和时间截止每次按当前时间计算。Redis不可用时回源MySQL，并短暂停止缓存访问15秒后尝试恢复；缓存损坏按未命中处理。`SCHEDULE_CACHE_ENABLED=false`可关闭。当前优化减少重复的公开占用联查，仍读取数据库版本与必要的本人占用，不承诺无数据库查询。
 

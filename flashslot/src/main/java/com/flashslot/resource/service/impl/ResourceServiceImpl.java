@@ -24,10 +24,51 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
     private final CurrentAdmin admin;
     private final AdminAuditService audit;
     private final Clock clock;
+    private final com.flashslot.resource.service.ResourceLookupCache lookup;
+
+    @Override
+    @Transactional(readOnly=true)
+    public ResourcePage listManaged(long cursor,int limit) {
+        admin.requireAdmin();
+        if(cursor<0 || limit<1 || limit>100) invalid("分页参数超出范围");
+        var found=baseMapper.selectList(Wrappers.<Resource>lambdaQuery().gt(Resource::getId,cursor)
+            .orderByAsc(Resource::getId).last("LIMIT "+(limit+1)));
+        var items=found.stream().limit(limit).map(ResourceView::from).toList();
+        boolean more=found.size()>limit;
+        return new ResourcePage(items,more?Long.toString(items.getLast().getId()):null,more);
+    }
+
+    @Override
+    @Transactional
+    public ResourceView changeStatus(long id,ResourceStatusRequest request) {
+        var resource=baseMapper.lockExclusive(id);
+        if(resource==null) throw new BusinessException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_FOUND","设备不存在");
+        if(!resource.getVersion().equals(request.version()))
+            throw new BusinessException(HttpStatus.CONFLICT,"VERSION_CONFLICT","设备状态已变更，请刷新后重试");
+        if("RETIRED".equals(resource.getStatus()) && !"RETIRED".equals(request.status()))
+            throw new BusinessException(HttpStatus.CONFLICT,"RESOURCE_RETIRED","已退役设备不能重新启用");
+        Instant now=clock.instant();
+        var local=now.atZone(ZoneId.of("Asia/Shanghai"));
+        if("RETIRED".equals(request.status()) && baseMapper.hasActiveUse(id,now,local.toLocalDate(),local.getHour()*2+local.getMinute()/30))
+            throw new BusinessException(HttpStatus.CONFLICT,"RESOURCE_IN_USE","设备存在未来或进行中订单、候补或交接占用，不能退役");
+        long actor=admin.lockAndRequireAdmin();
+        if(!request.status().equals(resource.getStatus())) {
+            resource.setStatus(request.status());
+            if(baseMapper.updateById(resource)!=1) throw new BusinessException(HttpStatus.CONFLICT,"VERSION_CONFLICT","设备状态已变更，请刷新后重试");
+            audit.record(actor,"RESOURCE_STATUS",id,request.reason().strip());
+        }
+        lookup.invalidateAfterCommit(id,request.version());
+        return ResourceView.from(required(id));
+    }
 
     /** 按设备 ID 查询详情，不存在时交给统一异常处理返回业务错误。 */
     @Override
-    public ResourceView get(long id) { return ResourceView.from(required(id)); }
+    @Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public ResourceView get(long id) {
+        Resource resource=lookup.find(id);
+        if(resource==null) throw new BusinessException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_FOUND","设备不存在");
+        return ResourceView.from(resource);
+    }
 
     /** ID 升序游标分页，多查一条用于判断 hasMore，最大每页 100 条。 */
     @Override
@@ -67,7 +108,8 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
         }
         days.insertDays(calendars);
         audit.record(actor,"RESOURCE_CREATE",resource.getId(),text(request.getReason()));
-        return get(resource.getId());
+        lookup.invalidateAfterCommit(resource.getId(),null);
+        return ResourceView.from(required(resource.getId()));
     }
 
     /** DTO 中的 version 为用户读到的旧版本，MyBatis-Plus 乐观锁防止并发覆盖。 */
@@ -95,7 +137,8 @@ public class ResourceServiceImpl extends ServiceImpl<ResourceMapper, Resource> i
         }
         long actor = admin.lockAndRequireAdmin();
         audit.record(actor,"RESOURCE_UPDATE",id,text(request.getReason()));
-        return get(id);
+        lookup.invalidateAfterCommit(id,expectedVersion);
+        return ResourceView.from(required(id));
     }
 
     /** 查询必须存在的设备，避免后续业务对 null 继续操作。 */

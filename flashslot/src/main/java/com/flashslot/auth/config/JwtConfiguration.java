@@ -47,7 +47,7 @@ public class JwtConfiguration {
 
     /** 使用可注入 Clock 验证时间；严格在 exp 到达时失效，且要求完整的本应用身份声明。 */
     @Bean
-    public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, Clock clock) {
+    public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, Clock clock, com.flashslot.auth.service.TokenStateService states) {
         var decoder =
                 NimbusJwtDecoder.withSecretKey(jwtSigningKey)
                         .macAlgorithm(MacAlgorithm.HS256)
@@ -84,6 +84,15 @@ public class JwtConfiguration {
                         new JwtClaimValidator<java.util.List<String>>(
                                 "aud", aud -> aud != null && aud.contains(AUDIENCE)),
                         required));
-        return decoder;
+        // 先完成签名及声明校验，再查持久化撤销状态；数据库不可用时不放行。
+        return value -> {
+            Jwt token=decoder.decode(value);
+            try {
+                if(!states.valid(token)) throw new BadJwtException("Token revoked");
+            } catch(org.springframework.dao.DataAccessException ex) {
+                throw new JwtException("Token state unavailable",ex);
+            }
+            return token;
+        };
     }
 }

@@ -1,4 +1,7 @@
 # Only the local development profile exposes API documentation.
+app:
+  registration:
+    development-code-enabled: ${REGISTRATION_DEVELOPMENT_CODE_ENABLED:true}
 springdoc:
   api-docs:
     enabled: true

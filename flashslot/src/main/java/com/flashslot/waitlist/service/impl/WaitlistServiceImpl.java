@@ -46,7 +46,7 @@ public class WaitlistServiceImpl implements WaitlistService {
         long userId = BaseContext.getCurrentId();
         var operation = operations.prepare(userId, "CANCEL_WAITLIST", key, number);
         if (operation.getResultHttpStatus() != null) {
-            AccountValidator.requireFormal(accountMapper.lockBookingAccount(userId));
+            AccountValidator.requireUser(accountMapper.lockBookingAccount(userId));
             var located = waitlistMapper.locate(number);
             if (located == null || located.getUserId() != userId)
                 throw failure(HttpStatus.NOT_FOUND, "WAITLIST_NOT_FOUND", "候补不存在");
@@ -54,13 +54,13 @@ public class WaitlistServiceImpl implements WaitlistService {
         }
         var located = waitlistMapper.locate(number);
         if (located == null || located.getUserId() != userId) {
-            AccountValidator.requireFormal(accountMapper.lockBookingAccount(userId));
+            AccountValidator.requireUser(accountMapper.lockBookingAccount(userId));
             throw failure(HttpStatus.NOT_FOUND, "WAITLIST_NOT_FOUND", "候补不存在");
         }
         resourceMapper.lockShared(located.getResourceId());
         dayMapper.lockDay(located.getResourceId(), located.getBookDate());
         var candidate = waitlistMapper.lock(located.getId());
-        AccountValidator.requireFormal(accountMapper.lockBookingAccount(userId));
+        AccountValidator.requireUser(accountMapper.lockBookingAccount(userId));
         Instant now = clock.instant();
         if ("WAITING".equals(candidate.getStatus())) {
             boolean expired = !now.isBefore(candidate.getExpireAt());
@@ -98,7 +98,7 @@ public class WaitlistServiceImpl implements WaitlistService {
                         + request.getPurpose();
         var record = operations.prepare(userId, "CREATE_WAITLIST", key, canonical);
         if (record.getResultHttpStatus() != null) {
-            AccountValidator.requireFormal(accountMapper.lockBookingAccount(userId));
+            AccountValidator.requireUser(accountMapper.lockBookingAccount(userId));
             return operations.replay(record, WaitlistView.class);
         }
         try {
@@ -130,7 +130,7 @@ public class WaitlistServiceImpl implements WaitlistService {
         AppUser account = accountMapper.lockBookingAccount(userId);
         Instant decisionTime = clock.instant();
         try {
-            AccountValidator.requireFormal(account);
+            AccountValidator.requireUser(account);
             LocalDate today = decisionTime.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate();
             if (request.getBookDate().isBefore(today)
                     || request.getBookDate().isAfter(today.plusDays(6)))
@@ -201,7 +201,7 @@ public class WaitlistServiceImpl implements WaitlistService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public WaitlistPage list(String cursor, int limit) {
         long userId = BaseContext.getCurrentId();
-        AccountValidator.requireFormal(accountMapper.findCurrentAccountById(userId));
+        AccountValidator.requireUser(accountMapper.findCurrentAccountById(userId));
         if (limit < 1
                 || limit > 100
                 || (cursor != null && !cursor.matches("[A-Za-z0-9._:-]{0,64}")))

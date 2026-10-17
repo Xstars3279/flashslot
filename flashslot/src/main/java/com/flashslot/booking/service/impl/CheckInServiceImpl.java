@@ -59,7 +59,7 @@ public class CheckInServiceImpl implements CheckInService {
         var day = days.lockDay(located.getResourceId(), located.getBookDate());
         var order = orders.lock(located.getId());
         AppUser owner = accounts.lockBookingAccount(actor);
-        AccountValidator.requireFormal(owner);
+        AccountValidator.requireUser(owner);
         Instant now = clock.instant();
         lifecycle.normalizeLocked(order, owner, day.getRevision(), now);
         if ("NO_SHOW".equals(order.getStatus()))

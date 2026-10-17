@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.flashslot.waitlist.config.ReleaseSchedulingConfiguration;
-import com.flashslot.waitlist.service.ReleaseJobService;
+import com.flashslot.waitlist.service.ReleaseDispatchService;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -19,7 +19,7 @@ class ReleaseSchedulingTest {
     private final ApplicationContextRunner runner =
             new ApplicationContextRunner()
                     .withUserConfiguration(ReleaseSchedulingConfiguration.class)
-                    .withBean(ReleaseJobService.class, () -> mock(ReleaseJobService.class));
+                    .withBean(ReleaseDispatchService.class, () -> mock(ReleaseDispatchService.class));
 
     @Test
     void registeredTaskRunsAtEveryHalfHour() {
@@ -28,8 +28,8 @@ class ReleaseSchedulingTest {
                     var tasks =
                             context.getBean(ScheduledAnnotationBeanPostProcessor.class)
                                     .getScheduledTasks();
-                    assertThat(tasks).hasSize(1);
-                    var task = tasks.iterator().next().getTask();
+                    assertThat(tasks).hasSize(2);
+                    var task = tasks.stream().map(t -> t.getTask()).filter(t -> t instanceof CronTask).findFirst().orElseThrow();
                     assertThat(task).isInstanceOf(CronTask.class);
                     var cron = CronExpression.parse(((CronTask) task).getExpression());
                     var first =

@@ -13,6 +13,15 @@ import java.util.List;
 /** 事件单主键基础操作由 MyBatis-Plus 提供。 */
 @Mapper
 public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
+    @Insert("""
+        INSERT INTO outbox_event(event_id,event_type,aggregate_id,payload,next_run_at,created_at)
+        SELECT #{eventId},#{eventType},#{aggregateId},
+          #{payload,typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler},#{nextRunAt},#{createdAt}
+        FROM release_job WHERE id=#{aggregateId} AND status='PENDING' AND next_run_at<=#{createdAt}
+        ON DUPLICATE KEY UPDATE event_id=outbox_event.event_id
+        """)
+    int insertReleaseDispatch(OutboxEvent event);
+
     List<String> findDue(@Param("now") Instant now, @Param("types") List<String> types);
 
     @Select("SELECT * FROM outbox_event WHERE event_id=#{eventId} FOR UPDATE")

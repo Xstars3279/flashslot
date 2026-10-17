@@ -64,7 +64,7 @@ public class BookingServiceImpl implements BookingService {
         // 1. 获取幂等记录；重复请求返回首次处理结果。
         var record = idempotency.prepare(userId, "CREATE_BOOKING", key, canonical);
         if (record.getResultHttpStatus() != null) {
-            AccountValidator.requireEnabled(accounts.lockBookingAccount(userId));
+            AccountValidator.requireUser(accounts.lockBookingAccount(userId));
             return idempotency.replay(record, BookingView.class);
         }
 
@@ -137,9 +137,7 @@ public class BookingServiceImpl implements BookingService {
             ResourceDay day,
             AppUser account,
             Instant now) {
-        AccountValidator.requireEnabled(account);
-        if ("DEMO".equals(account.getRole()))
-            throw failure(HttpStatus.FORBIDDEN, "FORBIDDEN", "演示账号不能预约正式设备");
+        AccountValidator.requireUser(account);
         LocalDate today = now.atZone(BUSINESS_ZONE).toLocalDate();
         if (request.getBookDate().isBefore(today)
                 || request.getBookDate().isAfter(today.plusDays(6))) {
@@ -176,6 +174,8 @@ public class BookingServiceImpl implements BookingService {
                 > 0) {
             throw failure(HttpStatus.CONFLICT, "USER_SLOT_CONFLICT", "你在此时段已有其他预约");
         }
+        if(bookings.dailyChargedSlots(account.getId(),request.getBookDate())+request.getEndSlot()-request.getStartSlot()>8)
+            throw failure(HttpStatus.CONFLICT,"DAILY_QUOTA_EXCEEDED","每天跨设备合计最多预约 4 小时，剩余额度不足");
     }
 
     /** 根据连续区间生成订单及签到窗口，绝对时间统一保存为 UTC。 */

@@ -7,6 +7,8 @@ import org.apache.ibatis.annotations.*;
 
 @Mapper
 public interface AccountPermissionMapper extends BaseMapper<AppUser> {
+    @Select("SELECT COUNT(*) FROM app_user WHERE phone=#{phone} OR username=#{phone}")
+    int registrationExists(String phone);
     @Select("SELECT id,username,role,enabled,credit_score,restriction_until FROM app_user WHERE id=#{id}")
     AppUser findProfileById(long id);
 
@@ -16,9 +18,12 @@ public interface AccountPermissionMapper extends BaseMapper<AppUser> {
 
     /** 仅用于密码认证，不复用到普通权限查询，也不直接返回实体。 */
     @Select(
-            "SELECT id,username,password_hash,role,enabled FROM app_user WHERE"
+            "SELECT id,username,password_hash,role,enabled,credential_version FROM app_user WHERE"
                     + " username=#{username}")
     AppUser findForLogin(String username);
+
+    @Select("SELECT * FROM app_user WHERE id=#{id} FOR UPDATE")
+    AppUser lockCredentials(long id);
 
     /** 预约取得资源/日历/候补锁后锁定用户，读取当前处罚，不读取密码。 */
     @Select(
@@ -27,6 +32,6 @@ public interface AccountPermissionMapper extends BaseMapper<AppUser> {
     AppUser lockBookingAccount(long id);
 
     /** 登录前定位限流账号；已认证请求应使用 ID，不读取密码。 */
-    @Select("SELECT id,username,role,enabled FROM app_user WHERE username=#{username}")
+    @Select("SELECT id,username,role,enabled,credential_version FROM app_user WHERE username=#{username}")
     AppUser findCurrentAccount(String username);
 }

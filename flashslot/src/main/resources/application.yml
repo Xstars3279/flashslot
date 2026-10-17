@@ -69,11 +69,27 @@ springdoc:
   swagger-ui:
     enabled: false
 app:
+  security:
+    trusted-proxies: ${TRUSTED_PROXIES:}
+  login-rate-limit:
+    ip-limit: ${LOGIN_IP_LIMIT:30}
+    account-limit: ${LOGIN_ACCOUNT_LIMIT:5}
+    window-seconds: ${LOGIN_WINDOW_SECONDS:60}
+  registration:
+    development-code-enabled: ${REGISTRATION_DEVELOPMENT_CODE_ENABLED:false}
+  history-cleanup:
+    scheduling-enabled: ${HISTORY_CLEANUP_SCHEDULING_ENABLED:true}
+    scan-delay-ms: 3600000
   resource-calendar:
     scheduling-enabled: ${RESOURCE_CALENDAR_SCHEDULING_ENABLED:true}
     scan-delay-ms: 60000
   schedule-cache:
     enabled: ${SCHEDULE_CACHE_ENABLED:true}
+    hot-resource-ids: ${HOT_RESOURCE_IDS:}
+  cache-lock:
+    watchdog-timeout-ms: 30000
+  account-ban-cache:
+    enabled: ${ACCOUNT_BAN_CACHE_ENABLED:true}
   messaging:
     enabled: ${MESSAGING_ENABLED:true}
     scheduling-enabled: ${MESSAGING_SCHEDULING_ENABLED:true}

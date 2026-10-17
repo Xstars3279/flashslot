@@ -35,6 +35,17 @@ public final class AccountValidator {
         return account != null && Boolean.TRUE.equals(account.getEnabled());
     }
 
+    public static AppUser requireUser(AppUser account) {
+        requireEnabled(account);
+        if (!isUser(account))
+            throw new BusinessException(HttpStatus.FORBIDDEN, "USER_REQUIRED", "仅使用者账号可进行个人预约操作");
+        return account;
+    }
+
+    public static boolean isUser(AppUser account) {
+        return account != null && "USER".equals(account.getRole());
+    }
+
     public static boolean isFormal(AppUser account) {
         return account != null
                 && ("USER".equals(account.getRole()) || "ADMIN".equals(account.getRole()));

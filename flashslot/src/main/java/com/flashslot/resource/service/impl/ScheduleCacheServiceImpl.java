@@ -15,6 +15,11 @@ import org.springframework.stereotype.Service;
 import java.time.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.*;
+import java.util.function.Supplier;
+import org.redisson.api.*;
+import com.flashslot.common.web.BusinessException;
+import org.springframework.http.HttpStatus;
 
 /** 只缓存公开占用，不保存身份、订单号或计算后的可预约标记。日历版本变化立即换键。 */
 @Service
@@ -22,11 +27,43 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ScheduleCacheServiceImpl implements ScheduleCacheService {
     @Autowired private StringRedisTemplate redis;
     @Autowired private ObjectMapper json;
+    @Autowired private RedissonClient locks;
 
     @Value("${app.schedule-cache.enabled:true}")
     private boolean enabled;
 
     private final AtomicLong retryAfter = new AtomicLong();
+
+    @Override
+    public List<ScheduleOccupation> getOrLoad(long id, LocalDate date, long revision, boolean hot, Supplier<List<ScheduleOccupation>> loader) {
+        var cached=get(id,date,revision);
+        if(cached!=null) return cached;
+        if(!available()) return loader.get();
+        RLock lock=locks.getLock("flashslot:lock:schedule:"+id+":"+date+":"+revision);
+        boolean acquired;
+        try {
+            // 不传 leaseTime，启用Redisson看门狗续期；等待者重新检查缓存。
+            acquired=lock.tryLock(1,TimeUnit.SECONDS);
+        } catch(InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE,"CACHE_BUSY","排期加载繁忙，请稍后重试");
+        } catch(RuntimeException ex) { unavailable(ex); return loader.get(); }
+        if(!acquired) {
+            cached=get(id,date,revision);
+            if(cached!=null) return cached;
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE,"CACHE_BUSY","排期加载繁忙，请稍后重试");
+        }
+        try {
+            cached=get(id,date,revision);
+            if(cached!=null) return cached;
+            var value=loader.get();
+            putWithTtl(id,date,revision,value,hot?60:30,hot?31:16);
+            return value;
+        } finally {
+            try { if(lock.isHeldByCurrentThread()) lock.unlock(); }
+            catch(RuntimeException ex) { unavailable(ex); }
+        }
+    }
 
     @Override
     public List<ScheduleOccupation> get(long id, LocalDate date, long revision) {
@@ -46,6 +83,10 @@ public class ScheduleCacheServiceImpl implements ScheduleCacheService {
 
     @Override
     public void put(long id, LocalDate date, long revision, List<ScheduleOccupation> occupations) {
+        putWithTtl(id,date,revision,occupations,30,16);
+    }
+
+    private void putWithTtl(long id, LocalDate date, long revision, List<ScheduleOccupation> occupations,int base,int jitter) {
         if (!available()) return;
         // 防止未来修改调用方时意外把个人订单信息写入共享缓存。
         if (occupations.stream().anyMatch(o -> o.getOwnOrderNo() != null))
@@ -55,7 +96,7 @@ public class ScheduleCacheServiceImpl implements ScheduleCacheService {
                     .set(
                             key(id, date, revision),
                             json.writeValueAsString(occupations),
-                            Duration.ofSeconds(30));
+                            Duration.ofSeconds(base+ThreadLocalRandom.current().nextInt(jitter)));
         } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
             log.warn("排期缓存序列化失败");
         } catch (RuntimeException ex) {
@@ -68,7 +109,8 @@ public class ScheduleCacheServiceImpl implements ScheduleCacheService {
     }
 
     private boolean available() {
-        return enabled && System.nanoTime() >= retryAfter.get();
+        long deadline=retryAfter.get();
+        return enabled && (deadline==0 || System.nanoTime()-deadline>=0);
     }
 
     private void unavailable(RuntimeException ex) {

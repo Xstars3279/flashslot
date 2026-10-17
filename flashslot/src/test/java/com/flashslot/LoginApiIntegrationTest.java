@@ -40,6 +40,7 @@ class LoginApiIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper json;
+    @Autowired org.springframework.data.redis.core.StringRedisTemplate redis;
     @MockitoBean Clock clock;
     @MockitoSpyBean com.flashslot.auth.mapper.AccountPermissionMapper accounts;
     static final AtomicInteger IP_SEQUENCE = new AtomicInteger();
@@ -164,11 +165,11 @@ class LoginApiIntegrationTest {
         String token = token(username);
         jdbc.update("UPDATE app_user SET enabled=0 WHERE id=?", uid);
         mvc.perform(get("/api/v1/me/bookings").header("Authorization", "Bearer " + token))
-                .andExpect(status().isForbidden())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("code").value(0))
                 .andExpect(
                         jsonPath("msg")
-                                .value(org.hamcrest.Matchers.isIn(java.util.List.of("账号已停用"))));
+                                .value(org.hamcrest.Matchers.isIn(java.util.List.of("请先登录"))));
     }
 
     @Test
@@ -259,6 +260,8 @@ class LoginApiIntegrationTest {
 
     @Test
     void repeatedAttemptsAreLimitedAcrossIpsAndWindowExpires() throws Exception {
+        boolean realRedis="true".equals(System.getenv("FLASHSLOT_PRIVATE_REDIS_TEST"));
+        var before=realRedis?new HashSet<>(redis.keys("flashslot:rate:login:*")):Set.<String>of();
         for (int i = 0; i < 5; i++) {
             mvc.perform(
                             login(username, "wrong")
@@ -282,6 +285,14 @@ class LoginApiIntegrationTest {
                                                         "登录尝试过于频繁，请稍后重试", "登录请求过于频繁，请稍后重试"))))
                 .andExpect(header().exists("Retry-After"));
         when(clock.instant()).thenReturn(now.plusSeconds(61));
+        if(realRedis) {
+            // Redis TTL follows server time, not the application's mocked business Clock.
+            mvc.perform(login(username,PASSWORD)).andExpect(status().isTooManyRequests());
+            var created=new HashSet<>(redis.keys("flashslot:rate:login:*")); created.removeAll(before);
+            for(String key:created) redis.expire(key,Duration.ofMillis(10));
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2))
+                .until(() -> created.stream().noneMatch(key -> Boolean.TRUE.equals(redis.hasKey(key))));
+        }
         mvc.perform(login(username, PASSWORD)).andExpect(status().isOk());
     }
 

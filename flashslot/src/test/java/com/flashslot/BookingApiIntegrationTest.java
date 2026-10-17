@@ -319,10 +319,10 @@ class BookingApiIntegrationTest {
     }
 
     @Test
-    void adjacentIntervalsAndMultipleBookingsDoNotImposeUnconfirmedDailyQuota() throws Exception {
+    void adjacentIntervalCannotExceedConfirmedDailyQuota() throws Exception {
         mvc.perform(request("first", 16, 24)).andExpect(status().isCreated());
-        mvc.perform(request("adjacent", 24, 25)).andExpect(status().isCreated());
-        assertThat(count("user_slot_occupation")).isEqualTo(9);
+        mvc.perform(request("adjacent", 24, 25)).andExpect(status().isConflict());
+        assertThat(count("user_slot_occupation")).isEqualTo(8);
     }
 
     @Test

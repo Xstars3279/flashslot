@@ -13,6 +13,10 @@ import lombok.Setter;
 @NoArgsConstructor
 @TableName(value = "app_user", autoResultMap = true)
 public class AppUser {
+    @TableField("phone")
+    private String phone;
+    @TableField("credential_version")
+    private Long credentialVersion;
     /** 内部自增主键 */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;

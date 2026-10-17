@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import com.flashslot.common.model.DueItem;
 
 @Service
 @Slf4j
@@ -25,17 +27,24 @@ public class WaitlistExpiryServiceImpl implements WaitlistExpiryService {
     @Autowired private ObjectMapper json;
     @Autowired private Clock clock;
     @Autowired @Lazy private WaitlistExpiryService self;
+    private Instant scanUntil;
+    private DueItem cursor;
 
-    /** 每项独立提交，一条异常不会让整批到期候补无法处理。 */
+    /** 独立事务加跨批游标；扫完固定截止时间内的记录后，再从头重试失败项。 */
     @Override
-    public void scanExpired() {
-        for (long id : mapper.findExpired(clock.instant())) {
+    public synchronized void scanExpired() {
+        if(scanUntil==null) scanUntil=clock.instant();
+        var batch=mapper.findExpired(scanUntil,cursor==null?null:cursor.dueAt(),cursor==null?0:cursor.id());
+        for (DueItem item : batch) {
+            cursor=item;
+            long id=item.id();
             try {
                 self.expireOne(id);
             } catch (RuntimeException ex) {
                 log.warn("候补过期处理失败，id={}，exception={}", id, ex.getClass().getSimpleName());
             }
         }
+        if(batch.size()<100) { cursor=null; scanUntil=null; }
     }
 
     @Override

@@ -29,7 +29,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public NotificationPage list(NotificationQueryRequest request) {
         long userId = BaseContext.getCurrentId();
-        AccountValidator.requireFormal(accounts.findCurrentAccountById(userId));
+        AccountValidator.requireUser(accounts.findCurrentAccountById(userId));
         Notification anchor = null;
         if (request.getCursor() != null) {
             anchor =
@@ -56,7 +56,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional(rollbackFor = Exception.class)
     public NotificationReadView markRead(long id) {
         long userId = BaseContext.getCurrentId();
-        AccountValidator.requireFormal(accounts.lockBookingAccount(userId));
+        AccountValidator.requireUser(accounts.lockBookingAccount(userId));
         mapper.markRead(id, userId, clock.instant().truncatedTo(ChronoUnit.MILLIS));
         Notification notification =
                 mapper.selectOne(

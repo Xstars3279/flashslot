@@ -407,8 +407,10 @@ class CancellationWaitlistIntegrationTest {
         mvc.perform(get("/api/v1/me/waitlists").with(user(candidate)).param("limit", "101"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/v1/me/waitlists")).andExpect(status().isUnauthorized());
+        String anotherUser = "queue_" + UUID.randomUUID();
+        account(anotherUser, "USER");
         var second =
-                mvc.perform(interval("/api/v1/waitlists", admin, "second", resource, 18, 22))
+                mvc.perform(interval("/api/v1/waitlists", anotherUser, "second", resource, 18, 22))
                         .andExpect(status().isCreated())
                         .andReturn();
         assertThat(data(second).get("queuePosition").asInt()).isEqualTo(2);

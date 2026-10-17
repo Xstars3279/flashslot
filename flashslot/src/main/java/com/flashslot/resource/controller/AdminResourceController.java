@@ -18,6 +18,16 @@ import org.springframework.web.bind.annotation.*;
 public class AdminResourceController {
     private final ResourceService service;
 
+    @GetMapping
+    public Result<com.flashslot.resource.vo.ResourcePage> list(@RequestParam(defaultValue="0") long cursor,@RequestParam(defaultValue="100") int limit) {
+        return Result.success(service.listManaged(cursor,limit));
+    }
+
+    @PatchMapping("/{id}/status")
+    public Result<ResourceView> status(@PathVariable @Positive long id,@RequestBody @Valid ResourceStatusRequest request) {
+        return Result.success(service.changeStatus(id,request));
+    }
+
     /** 接收设备 DTO，新建成功直接返回 Result，HTTP 状态为 201。 */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

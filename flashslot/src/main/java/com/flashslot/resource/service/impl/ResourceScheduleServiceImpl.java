@@ -41,6 +41,8 @@ public class ResourceScheduleServiceImpl implements ResourceScheduleService {
     private final ScheduleEventService events;
     private final Clock clock;
     private final ScheduleCacheService cache;
+    private final com.flashslot.resource.service.ResourceLookupCache lookup;
+    private final com.flashslot.resource.service.HotResourcePolicy hotPolicy;
 
     /**
      * 使用同一个只读快照读取设备、日历和占用，避免 revision 与格子来自不同提交。 返回的 canBook/canWaitlist
@@ -49,15 +51,14 @@ public class ResourceScheduleServiceImpl implements ResourceScheduleService {
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ScheduleView getSchedule(long resourceId, LocalDate date) {
+        // 缓存先核对数据库版本；真实设备状态和日历仍在本次数据库快照中复核。
+        requiredResource(lookup.find(resourceId));
         Resource resource = requiredResource(resources.selectById(resourceId));
         ResourceDay day = requiredDay(days.findDay(resourceId, date));
         Instant now = clock.instant();
         Map<Integer, ScheduleOccupation> occupations = new HashMap<>();
-        var publicOccupations = cache.get(resourceId, date, day.getRevision());
-        if (publicOccupations == null) {
-            publicOccupations = scheduleReads.findOccupations(resourceId, date, null);
-            cache.put(resourceId, date, day.getRevision(), publicOccupations);
-        }
+        var publicOccupations = cache.getOrLoad(resourceId,date,day.getRevision(),hotPolicy.isHot(resource),
+                () -> scheduleReads.findOccupations(resourceId,date,null));
         for (ScheduleOccupation occupation : publicOccupations) {
             occupations.put(occupation.getSlotIndex(), occupation);
         }

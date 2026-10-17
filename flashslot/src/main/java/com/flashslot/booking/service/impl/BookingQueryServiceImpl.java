@@ -39,6 +39,7 @@ public class BookingQueryServiceImpl implements BookingQueryService {
     @Override
     public BookingPage list(String cursor, int limit) {
         AppUser account = requireReader();
+        AccountValidator.requireUser(account);
         if (limit < 1
                 || limit > 100
                 || (cursor != null && !cursor.matches("[A-Za-z0-9._:-]{0,64}"))) {

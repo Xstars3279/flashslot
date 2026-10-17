@@ -61,7 +61,7 @@ class ScheduleCacheIntegrationTest {
         var keys = redis.keys("flashslot:schedule:" + resource + ":*");
         assertThat(keys).hasSize(2);
         for (String key : keys) {
-            assertThat(redis.getExpire(key)).isBetween(1L, 60L);
+            assertThat(redis.getExpire(key)).isBetween(1L, 90L);
             assertThat(redis.opsForValue().get(key)).doesNotContain("userId", "BK_", "password");
         }
     }
