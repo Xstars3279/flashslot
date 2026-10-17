@@ -35,3 +35,10 @@ Prometheus 在 Compose 内抓取 `app:8080/actuator/prometheus`，数据卷保�
 [抓取配置](prometheus.yml)和[5 条告警规则](message-alerts.yml)覆盖抓取/快照不可用、发布积压、失败/死信、撮合逾期和人工复核。[指标语义](../../docs/message-metrics.md)说明失败率与数据库不可用行为。尚未配置 Alertmanager 或外部通知；规则出现告警不会自动发邮件或消息。
 
 本轮已完成官方 promtool 配置与规则校验及静态 Compose 检查；本机没有 Docker，尚未实际启动该 Compose 监控组合，需部署时验证 targets、告警触发及数据持久化。
+
+
+## 手机号模拟注册
+
+需要模拟自主注册时，在部署 `.env` 中显式设置 `REGISTRATION_DEVELOPMENT_CODE_ENABLED=true`，然后执行 `docker compose --env-file /opt/flashslot/.env -f /opt/flashslot/current/compose.yml up -d --no-deps --force-recreate app`。Compose 将该开关传给应用；无需改 production profile 或开启 Swagger。默认仍为 false。
+
+启用后登录页出现手机号注册入口：用户获取六位验证码，验证码直接返回并显示在前端，再输入验证码与自设密码注册，成功自动登录为 USER。不发送真实短信、不证明手机号归属，页面明确标注联调模式。保留手机号 60 秒冷却、每 24 小时 10 次、来源 IP 每小时 60 次、验证码 5 分钟 TTL 和输错 5 次失效；登录限流继续独立生效。手机号与用户名唯一索引防重复注册。

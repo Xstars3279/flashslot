@@ -55,6 +55,7 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: "-Xms96m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:ActiveProcessorCount=1 -Xss512k"
       APP_PROFILE: production
+      REGISTRATION_DEVELOPMENT_CODE_ENABLED: ${REGISTRATION_DEVELOPMENT_CODE_ENABLED:-false}
       SERVER_PORT: 8080
       DB_URL: "jdbc:mysql://mysql:3306/flashslot?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8"
       DB_USERNAME: flashslot

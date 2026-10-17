@@ -82,7 +82,7 @@ Long userId = BaseContext.getCurrentId();
 - `POST /api/v1/auth/register`，请求 `phone、code、password`；密码至少8个字符、至多72个UTF-8字节。成功 HTTP201，返回与登录相同的 LoginView，直接进入登录态。手机号作为登录用户名，固定创建 USER，不接受客户端 role。后续用手机号和密码登录；已有管理创建的用户名账号仍可登录。
 - Redis 保存验证码指纹及5分钟TTL，同号60秒冷却、每24小时10次、来源IP每小时60次，Lua原子校验，输错5次失效；Redis不可用拒绝注册。手机号和用户名双重查重，数据库手机号唯一索引兜底并发。事务失败保留验证码供重试，数据库提交后再清理；清理暂时失败也不能再次创建同一手机号。
 - V8 为 app_user 增加可空且唯一的 phone，旧账号与管理员数据保持不变。注册需要独立Redis，即使排期缓存关闭也需要Redis。
-- 仅 local 配置默认开启联调验证码；其他配置默认关闭。`REGISTRATION_DEVELOPMENT_CODE_ENABLED=false` 可明确禁用，禁用时两个接口返回503，不返回验证码。当前没有真实短信服务商配置，不应将此模式当成真实手机号认证。
+- 仅 local 配置默认开启联调验证码；其他配置默认关闭。`REGISTRATION_DEVELOPMENT_CODE_ENABLED=false` 可明确禁用，禁用时两个接口返回503，不返回验证码。当前没有真实短信服务商配置，不应将此模式当成真实手机号认证。 当前演示站按用户要求显式启用 `REGISTRATION_DEVELOPMENT_CODE_ENABLED=true`，Compose 已转发该配置；验证码返回前端用于模拟注册，production profile 和 Swagger 关闭规则保持不变。
 
 应用未设置 `APP_PROFILE` 时默认使用 `production`，不开放联调验证码和 Swagger。需要开发工具时显式设置 `APP_PROFILE=local`；本机启动和隔离验收脚本已显式选择 local，不依赖不安全的默认值。
 

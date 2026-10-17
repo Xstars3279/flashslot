@@ -37,3 +37,12 @@ docker compose --env-file .env -f current/compose.yml up -d
 - 从私有网络真实抓取业务指标成功，snapshot_available=1、Outbox backlog=0、dead_letters=0、release pending/manual_review=0。原有 3 条 SCHEDULE_CHANGED 从 NEW 归档为 ARCHIVED；2 个账号、1 个订单均保留。新日历维护已生成上海当天起 14 天日历。通知/撮合及其死信队列各有 1 个消费者，ready/unacknowledged 均为 0。
 - 此次验收为 HTTP、构建哈希、迁移、持久数据和中间件检查，未用用户密码做新的登录/预约写入，也未作浏览器点击或容量压测。可选 Prometheus 容器未启用，尚未接外部告警通知；指标端点可在授权私网抓取。公网报告保存在本机忽略目录 `.run/flashslot-server-20261017-verification.json`。
 - 旧应用与 V10 的 schema 兼容性未经回退验证；故障回退需按备份和匹配的应用/schema 制定方案，不能只切回旧 JAR。
+
+
+## 2026-10-17 手机号模拟注册启用
+
+按用户明确要求保留手机号注册和前端显示验证码的模拟方式，不使用学号注册。应用代码仍为 `2c6a36f`；本次仅为 Compose 转发 `REGISTRATION_DEVELOPMENT_CODE_ENABLED`，并在服务器 `.env` 显式设置 true。`production` profile、Swagger 关闭和既有数据不变；更改前配置备份在 `/opt/flashslot/backups/20261017-phone-registration/`。
+
+线上 capabilities 已返回 `registrationEnabled=true, registrationMode=DEVELOPMENT`。公网真实验证获取六位验证码、no-store、重复发送 429 冷却、错误验证码 400、注册 201 与自动登录、普通用户访问管理员 403、登出后 Token 401、手机号密码再次登录及重复账号 409。验证码和密码未写入验收报告；唯一临时账号已按 ID/手机号/角色精确删除，恢复原有 2 个账号。
+
+原手机号流程的隔离 MySQL/Redis 回归 7 项全部通过，前端 35 项全部通过；日志 `.run/phone-registration-final.log`、`.run/phone-registration-web.log`。公网报告 `.run/phone-registration-server-verification.json`。应用与入口容器运行、重启次数均为 0，健康检查 UP。模拟注册不会发送真实短信，也不验证手机号实际归属；验证码冷却、次数上限与登录限流继续生效。
